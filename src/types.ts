@@ -40,6 +40,7 @@ export interface RegisteredGroup {
   containerConfig?: ContainerConfig;
   requiresTrigger?: boolean; // Default: true for groups, false for solo chats
   isMain?: boolean; // True for the main control group (no trigger, elevated privileges)
+  modelOverride?: string; // Sticky model override (e.g., 'claude-opus-4-6')
 }
 
 export interface NewMessage {

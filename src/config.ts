@@ -71,3 +71,22 @@ export const TRIGGER_PATTERN = new RegExp(
 // Uses system timezone by default
 export const TIMEZONE =
   process.env.TZ || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+// Model configuration
+// Valid model IDs: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001
+export const DEFAULT_MODEL =
+  process.env.DEFAULT_MODEL || 'claude-sonnet-4-6';
+
+// Map of shorthand names to full model IDs
+export const MODEL_ALIASES: Record<string, string> = {
+  opus: 'claude-opus-4-6',
+  sonnet: 'claude-sonnet-4-6',
+  haiku: 'claude-haiku-4-5-20251001',
+};
+
+// Reverse map: full model ID to display name
+export const MODEL_DISPLAY_NAMES: Record<string, string> = {
+  'claude-opus-4-6': 'Opus',
+  'claude-sonnet-4-6': 'Sonnet',
+  'claude-haiku-4-5-20251001': 'Haiku',
+};

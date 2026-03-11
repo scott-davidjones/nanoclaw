@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(bash setup.sh 2>&1)",
+      "Bash(npx tsx:*)",
+      "Bash(systemctl --user restart nanoclaw 2>&1 && sleep 2 && systemctl --user status nanoclaw 2>&1 | head -15)"
+    ]
+  }
+}

@@ -4,7 +4,10 @@ import path from 'path';
 import {
   ASSISTANT_NAME,
   CREDENTIAL_PROXY_PORT,
+  DEFAULT_MODEL,
   IDLE_TIMEOUT,
+  MODEL_ALIASES,
+  MODEL_DISPLAY_NAMES,
   POLL_INTERVAL,
   TIMEZONE,
   TRIGGER_PATTERN,
@@ -36,6 +39,7 @@ import {
   getRegisteredGroup,
   getRouterState,
   initDatabase,
+  setGroupModel,
   setRegisteredGroup,
   setRouterState,
   setSession,
@@ -139,6 +143,27 @@ export function _setRegisteredGroups(
   registeredGroups = groups;
 }
 
+/** Pattern to match model switch commands: /opus, /sonnet, /haiku */
+const MODEL_SWITCH_PATTERN = /^\/(opus|sonnet|haiku)\s*$/i;
+
+/**
+ * Check if a message is a model switch command.
+ * Returns the full model ID if it is, undefined otherwise.
+ */
+function parseModelSwitch(content: string): string | undefined {
+  const match = content.trim().match(MODEL_SWITCH_PATTERN);
+  if (!match) return undefined;
+  return MODEL_ALIASES[match[1].toLowerCase()];
+}
+
+/**
+ * Resolve the model to use for a group.
+ * Priority: group override > DEFAULT_MODEL
+ */
+function resolveModel(group: RegisteredGroup): string {
+  return group.modelOverride || DEFAULT_MODEL;
+}
+
 /**
  * Process all pending messages for a group.
  * Called by the GroupQueue when it's this group's turn.
@@ -163,6 +188,29 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   );
 
   if (missedMessages.length === 0) return true;
+
+  // Handle model switch commands (/opus, /sonnet, /haiku)
+  // Check the last message — if it's a switch command, apply it and respond
+  const lastMsg = missedMessages[missedMessages.length - 1];
+  const switchModel = parseModelSwitch(lastMsg.content.trim());
+  if (switchModel) {
+    // Advance cursor past the switch command
+    lastAgentTimestamp[chatJid] = lastMsg.timestamp;
+    saveState();
+
+    // Apply the model override
+    group.modelOverride = switchModel;
+    registeredGroups[chatJid] = group;
+    setGroupModel(chatJid, switchModel);
+
+    const displayName = MODEL_DISPLAY_NAMES[switchModel] || switchModel;
+    await channel.sendMessage(chatJid, `Switched to ${displayName}.`);
+    logger.info(
+      { group: group.name, model: switchModel },
+      'Model switched via command',
+    );
+    return true;
+  }
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
@@ -204,10 +252,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   };
 
   await channel.setTyping?.(chatJid, true);
+  const model = resolveModel(group);
   let hadError = false;
   let outputSentToUser = false;
 
-  const output = await runAgent(group, prompt, chatJid, async (result) => {
+  const output = await runAgent(group, prompt, chatJid, model, async (result) => {
     // Streaming output callback — called for each agent result
     if (result.result) {
       const raw =
@@ -264,6 +313,7 @@ async function runAgent(
   group: RegisteredGroup,
   prompt: string,
   chatJid: string,
+  model?: string,
   onOutput?: (output: ContainerOutput) => Promise<void>,
 ): Promise<'success' | 'error'> {
   const isMain = group.isMain === true;
@@ -315,6 +365,7 @@ async function runAgent(
         chatJid,
         isMain,
         assistantName: ASSISTANT_NAME,
+        model,
       },
       (proc, containerName) =>
         queue.registerProcess(chatJid, proc, containerName, group.folder),
@@ -384,6 +435,21 @@ async function startMessageLoop(): Promise<void> {
           const channel = findChannel(channels, chatJid);
           if (!channel) {
             logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
+            continue;
+          }
+
+          // Handle model switch commands before processing
+          const lastGm = groupMessages[groupMessages.length - 1];
+          const switchedModel = parseModelSwitch(lastGm.content.trim());
+          if (switchedModel) {
+            group.modelOverride = switchedModel;
+            registeredGroups[chatJid] = group;
+            setGroupModel(chatJid, switchedModel);
+            lastAgentTimestamp[chatJid] = lastGm.timestamp;
+            saveState();
+            const displayName = MODEL_DISPLAY_NAMES[switchedModel] || switchedModel;
+            await channel.sendMessage(chatJid, `Switched to ${displayName}.`);
+            logger.info({ group: group.name, model: switchedModel }, 'Model switched via command');
             continue;
           }
 
