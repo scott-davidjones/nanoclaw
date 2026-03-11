@@ -18,6 +18,8 @@ groups/main/*
 groups/global/*
 !groups/main/CLAUDE.md
 !groups/global/CLAUDE.md
+!groups/telegram_main/
+!groups/telegram_main/CLAUDE.md
 
 # Secrets
 *.keys.json
@@ -37,3 +39,4 @@ groups/global/*
 .nanoclaw/
 
 agents-sdk-docs
+.agent/

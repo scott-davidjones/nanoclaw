@@ -386,6 +386,15 @@ async function runQuery(
       }
     }
   }
+
+  // Always include the agent_globals repo if present — this provides global memory,
+  // cross-project conventions, and credentials to all sessions regardless of channel.
+  // Cloned to /workspace/project/.agent/ so it's accessible from the project mount.
+  const agentGlobalsDir = '/workspace/project/.agent';
+  if (fs.existsSync(agentGlobalsDir)) {
+    extraDirs.push(agentGlobalsDir);
+  }
+
   if (extraDirs.length > 0) {
     log(`Additional directories: ${extraDirs.join(', ')}`);
   }
