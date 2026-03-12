@@ -16,6 +16,7 @@ import { request as httpRequest, RequestOptions } from 'http';
 
 import { readEnvFile } from './env.js';
 import { logger } from './logger.js';
+import { getOAuthToken } from './oauth-refresh.js';
 
 export type AuthMode = 'api-key' | 'oauth';
 
@@ -35,7 +36,8 @@ export function startCredentialProxy(
   ]);
 
   const authMode: AuthMode = secrets.ANTHROPIC_API_KEY ? 'api-key' : 'oauth';
-  const oauthToken =
+  // Static fallback from .env (used only if live token unavailable)
+  const staticOauthToken =
     secrets.CLAUDE_CODE_OAUTH_TOKEN || secrets.ANTHROPIC_AUTH_TOKEN;
 
   const upstreamUrl = new URL(
@@ -48,7 +50,7 @@ export function startCredentialProxy(
     const server = createServer((req, res) => {
       const chunks: Buffer[] = [];
       req.on('data', (c) => chunks.push(c));
-      req.on('end', () => {
+      req.on('end', async () => {
         const body = Buffer.concat(chunks);
         const headers: Record<string, string | number | string[] | undefined> =
           {
@@ -67,14 +69,14 @@ export function startCredentialProxy(
           delete headers['x-api-key'];
           headers['x-api-key'] = secrets.ANTHROPIC_API_KEY;
         } else {
-          // OAuth mode: replace placeholder Bearer token with the real one
-          // only when the container actually sends an Authorization header
-          // (exchange request + auth probes). Post-exchange requests use
-          // x-api-key only, so they pass through without token injection.
+          // OAuth mode: get a live token (auto-refreshes if expired),
+          // fall back to static .env token if unavailable.
           if (headers['authorization']) {
             delete headers['authorization'];
-            if (oauthToken) {
-              headers['authorization'] = `Bearer ${oauthToken}`;
+            const liveToken = await getOAuthToken();
+            const token = liveToken || staticOauthToken;
+            if (token) {
+              headers['authorization'] = `Bearer ${token}`;
             }
           }
         }
