@@ -92,7 +92,10 @@ export function ensureContainerRuntimeRunning(): void {
         );
         sleepSync(RETRY_DELAY_MS);
       } else {
-        logger.error({ err }, 'Failed to reach container runtime after all retries');
+        logger.error(
+          { err },
+          'Failed to reach container runtime after all retries',
+        );
         console.error(
           '\n╔════════════════════════════════════════════════════════════════╗',
         );
