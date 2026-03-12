@@ -13,6 +13,7 @@ import {
   TRIGGER_PATTERN,
 } from './config.js';
 import { startCredentialProxy } from './credential-proxy.js';
+import { getOAuthToken } from './oauth-refresh.js';
 import './channels/index.js';
 import {
   getChannelFactory,
@@ -544,6 +545,35 @@ function ensureContainerSystemRunning(): void {
   cleanupOrphans();
 }
 
+/**
+ * Proactively refresh the OAuth token on a schedule.
+ * Runs every 30 minutes and calls getOAuthToken(), which only hits the
+ * Anthropic refresh endpoint when the token is within EXPIRY_BUFFER_MS of
+ * expiry — so this is a no-op on every call except the one just before expiry.
+ * Prevents the token from expiring silently during long quiet periods.
+ */
+function startTokenRefreshLoop(): void {
+  const CHECK_INTERVAL_MS = 30 * 60 * 1000; // check every 30 minutes
+
+  const check = async () => {
+    try {
+      const token = await getOAuthToken();
+      if (!token) {
+        logger.warn(
+          'Proactive OAuth token check: no valid token available — manual re-auth may be needed (run `claude` on the server)',
+        );
+      }
+      // If the token was still valid, getOAuthToken() returned it silently.
+      // If it was refreshed, it already logged "OAuth token refreshed, expires in Xs".
+    } catch (err) {
+      logger.error({ err }, 'Proactive OAuth token check failed');
+    }
+  };
+
+  setInterval(check, CHECK_INTERVAL_MS);
+  logger.info({ intervalMs: CHECK_INTERVAL_MS }, 'OAuth token refresh loop started');
+}
+
 async function main(): Promise<void> {
   ensureContainerSystemRunning();
   initDatabase();
@@ -555,6 +585,9 @@ async function main(): Promise<void> {
     CREDENTIAL_PROXY_PORT,
     PROXY_BIND_HOST,
   );
+
+  // Proactively keep the OAuth token fresh in the background
+  startTokenRefreshLoop();
 
   // Graceful shutdown handlers
   const shutdown = async (signal: string) => {

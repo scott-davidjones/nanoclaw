@@ -8,12 +8,16 @@ import https from 'https';
 import os from 'os';
 import { logger } from './logger.js';
 
-const CREDENTIALS_PATH = path.join(os.homedir(), '.claude', '.credentials.json');
+const CREDENTIALS_PATH = path.join(
+  os.homedir(),
+  '.claude',
+  '.credentials.json',
+);
 const TOKEN_ENDPOINT = 'https://api.anthropic.com/v1/oauth/token';
 const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 
-/** Buffer before expiry to trigger a refresh (5 minutes). */
-const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+/** Buffer before expiry to trigger a refresh (10 minutes). */
+const EXPIRY_BUFFER_MS = 10 * 60 * 1000;
 
 interface OAuthCredentials {
   claudeAiOauth: {
@@ -108,7 +112,9 @@ function refreshToken(refresh: string): Promise<TokenResponse> {
         res.on('end', () => {
           const data = Buffer.concat(chunks).toString();
           if (res.statusCode !== 200) {
-            reject(new Error(`Token refresh failed (${res.statusCode}): ${data}`));
+            reject(
+              new Error(`Token refresh failed (${res.statusCode}): ${data}`),
+            );
             return;
           }
           try {
