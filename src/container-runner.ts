@@ -14,6 +14,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  PERSIST_DIR,
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -199,6 +200,17 @@ function buildVolumeMounts(
     containerPath: '/app/src',
     readonly: false,
   });
+
+  // Shared persistent storage — available to all containers.
+  // Survives container rebuilds; use for SSH keys, gh CLI auth, shared repos, etc.
+  // Enabled by setting PERSIST_DIR in .env on the host.
+  if (PERSIST_DIR && fs.existsSync(PERSIST_DIR)) {
+    mounts.push({
+      hostPath: PERSIST_DIR,
+      containerPath: '/workspace/persist',
+      readonly: false,
+    });
+  }
 
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {

@@ -6,7 +6,11 @@ import { readEnvFile } from './env.js';
 // Read config values from .env (falls back to process.env).
 // Secrets (API keys, tokens) are NOT read here — they are loaded only
 // by the credential proxy (credential-proxy.ts), never exposed to containers.
-const envConfig = readEnvFile(['ASSISTANT_NAME', 'ASSISTANT_HAS_OWN_NUMBER']);
+const envConfig = readEnvFile([
+  'ASSISTANT_NAME',
+  'ASSISTANT_HAS_OWN_NUMBER',
+  'PERSIST_DIR',
+]);
 
 export const ASSISTANT_NAME =
   process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';
@@ -33,6 +37,12 @@ export const SENDER_ALLOWLIST_PATH = path.join(
   'nanoclaw',
   'sender-allowlist.json',
 );
+// Shared persistent storage directory — mounted at /workspace/persist/ in all containers.
+// Set PERSIST_DIR in .env to a host path that survives container rebuilds.
+// Use this for SSH keys, gh CLI auth, shared repos, and any other durable agent data.
+export const PERSIST_DIR =
+  process.env.PERSIST_DIR || envConfig.PERSIST_DIR || null;
+
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
@@ -74,8 +84,7 @@ export const TIMEZONE =
 
 // Model configuration
 // Valid model IDs: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001
-export const DEFAULT_MODEL =
-  process.env.DEFAULT_MODEL || 'claude-sonnet-4-6';
+export const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'claude-sonnet-4-6';
 
 // Map of shorthand names to full model IDs
 export const MODEL_ALIASES: Record<string, string> = {
