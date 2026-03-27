@@ -48,6 +48,8 @@ Add capabilities to NanoClaw by merging a git branch. The SKILL.md contains setu
 3. Add a SKILL.md in `.claude/skills/<name>/` with setup instructions — step 1 should be merging the branch
 4. Open a PR. We'll create the `skill/<name>` branch from your work
 
+**Important:** Skill branches must NOT modify `README.md`. The root README is the main project README and skill merges will clobber it. If your skill needs its own documentation beyond the SKILL.md, put it in `docs/skills/<name>.md`.
+
 See `/add-telegram` for a good example. See [docs/skills-as-branches.md](docs/skills-as-branches.md) for the full system design.
 
 #### 2. Utility skills (with code files)

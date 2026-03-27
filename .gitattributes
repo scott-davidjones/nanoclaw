@@ -1,0 +1,2 @@
+# Keep the main project README on merge — skill branches must not overwrite it.
+README.md merge=ours
