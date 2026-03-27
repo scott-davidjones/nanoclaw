@@ -233,6 +233,9 @@ async function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
+  // Placeholder token so doctl doesn't refuse to run — real token injected by OneCLI gateway
+  args.push('-e', 'DIGITALOCEAN_ACCESS_TOKEN=onecli-managed');
+
   // OneCLI gateway handles credential injection — containers never see real secrets.
   // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
   const onecliApplied = await onecli.applyContainerConfig(args, {
