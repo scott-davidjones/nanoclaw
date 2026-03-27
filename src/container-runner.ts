@@ -13,6 +13,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  MCP_MEMORY_URL,
   ONECLI_URL,
   TIMEZONE,
 } from './config.js';
@@ -232,6 +233,11 @@ async function buildContainerArgs(
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // Pass MCP memory server URL if configured
+  if (MCP_MEMORY_URL) {
+    args.push('-e', `MCP_MEMORY_URL=${MCP_MEMORY_URL}`);
+  }
 
   // OneCLI gateway handles credential injection — containers never see real secrets.
   // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
