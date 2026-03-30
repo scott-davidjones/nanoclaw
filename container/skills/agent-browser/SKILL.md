@@ -73,6 +73,16 @@ agent-browser get url             # Get current URL
 agent-browser get count ".item"   # Count matching elements
 ```
 
+### Viewport & Device Emulation
+
+```bash
+agent-browser set viewport 1280 800      # Set viewport to desktop size
+agent-browser set viewport 375 812       # Set viewport to mobile size
+agent-browser set viewport 375 812 2     # Mobile with 2x device pixel ratio
+agent-browser set device "iPhone 16 Pro" # Full device emulation (viewport + user agent)
+agent-browser device list                # List all available device presets
+```
+
 ### Screenshots & PDF
 
 ```bash

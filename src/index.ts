@@ -267,6 +267,17 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
         typeof result.result === 'string'
           ? result.result
           : JSON.stringify(result.result);
+
+      // Detect API 500 errors surfaced as agent output — suppress and retry
+      if (/API Error: 5\d{2}\b/.test(raw) || /"type":\s*"api_error"/.test(raw)) {
+        logger.warn(
+          { group: group.name },
+          'Agent output contains API server error, treating as retryable failure',
+        );
+        hadError = true;
+        return;
+      }
+
       // Strip <internal>...</internal> blocks — agent uses these for internal reasoning
       const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       logger.info({ group: group.name }, `Agent output: ${raw.length} chars`);
@@ -704,6 +715,10 @@ async function main(): Promise<void> {
     },
   });
   queue.setProcessMessagesFn(processGroupMessages);
+  queue.setNotifyUserFn(async (chatJid, text) => {
+    const channel = findChannel(channels, chatJid);
+    if (channel) await channel.sendMessage(chatJid, text);
+  });
   recoverPendingMessages();
   startMessageLoop().catch((err) => {
     logger.fatal({ err }, 'Message loop crashed unexpectedly');

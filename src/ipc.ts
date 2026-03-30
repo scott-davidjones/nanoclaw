@@ -83,8 +83,20 @@ export function startIpcWatcher(deps: IpcDeps): void {
                   (targetGroup && targetGroup.folder === sourceGroup)
                 ) {
                   if (data.sender && data.chatJid.startsWith('tg:')) {
+                    // Route pool messages to the swarm group if one exists,
+                    // otherwise fall back to the original chat.
+                    let poolTarget = data.chatJid;
+                    for (const [jid, g] of Object.entries(registeredGroups)) {
+                      if (
+                        jid.startsWith('tg:-') &&
+                        g.folder.includes('swarm')
+                      ) {
+                        poolTarget = jid;
+                        break;
+                      }
+                    }
                     await sendPoolMessage(
-                      data.chatJid,
+                      poolTarget,
                       data.text,
                       data.sender,
                       sourceGroup,
