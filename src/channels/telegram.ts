@@ -42,10 +42,10 @@ async function sendTelegramMessage(
 }
 
 // Bot pool for agent teams: send-only Api instances (no polling)
+// Each bot is permanently named via BotFather — no runtime renaming.
 const poolApis: Api[] = [];
-// Maps "{groupFolder}:{senderName}" → pool Api index for stable assignment
-const senderBotMap = new Map<string, number>();
-let nextPoolIndex = 0;
+// Maps bot display name (from BotFather) → pool index
+const botNameIndex = new Map<string, number>();
 
 /**
  * Initialize send-only Api instances for the bot pool.
@@ -56,9 +56,14 @@ export async function initBotPool(tokens: string[]): Promise<void> {
     try {
       const api = new Api(token);
       const me = await api.getMe();
+      const idx = poolApis.length;
       poolApis.push(api);
+      // Index by the bot's display name (set via BotFather) for sender matching
+      if (me.first_name) {
+        botNameIndex.set(me.first_name.toLowerCase(), idx);
+      }
       logger.info(
-        { username: me.username, id: me.id, poolSize: poolApis.length },
+        { username: me.username, name: me.first_name, id: me.id, poolSize: poolApis.length },
         'Pool bot initialized',
       );
     } catch (err) {
@@ -71,11 +76,11 @@ export async function initBotPool(tokens: string[]): Promise<void> {
 }
 
 /**
- * Send a message via a pool bot assigned to the given sender name.
- * Assigns bots round-robin on first use; subsequent messages from the
- * same sender in the same group always use the same bot.
- * On first assignment, renames the bot to match the sender's role.
+ * Send a message via a pool bot matched by sender name.
+ * Matches sender to the bot whose BotFather name matches (case-insensitive,
+ * ignoring emoji). Falls back to round-robin if no match found.
  */
+let nextPoolIndex = 0;
 export async function sendPoolMessage(
   chatId: string,
   text: string,
@@ -87,20 +92,14 @@ export async function sendPoolMessage(
     return;
   }
 
-  const key = `${groupFolder}:${sender}`;
-  let idx = senderBotMap.get(key);
+  // Match sender name to bot name — strip emoji and extra whitespace
+  const senderClean = sender.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').trim().toLowerCase();
+  let idx = botNameIndex.get(senderClean);
   if (idx === undefined) {
+    // Fallback: round-robin for unknown senders
     idx = nextPoolIndex % poolApis.length;
     nextPoolIndex++;
-    senderBotMap.set(key, idx);
-    // Rename the bot to match the sender's role, then wait for Telegram to propagate
-    try {
-      await poolApis[idx].setMyName(sender);
-      await new Promise((r) => setTimeout(r, 2000));
-      logger.info({ sender, groupFolder, poolIndex: idx }, 'Assigned and renamed pool bot');
-    } catch (err) {
-      logger.warn({ sender, err }, 'Failed to rename pool bot (sending anyway)');
-    }
+    logger.info({ sender, senderClean, groupFolder, poolIndex: idx }, 'No matching pool bot, using round-robin');
   }
 
   const api = poolApis[idx];

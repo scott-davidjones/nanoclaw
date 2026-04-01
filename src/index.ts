@@ -325,6 +325,24 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   if (idleTimer) clearTimeout(idleTimer);
 
   if (output === 'error' || hadError) {
+    // Notify the user that something went wrong — never fail silently
+    const errorDetail =
+      typeof output === 'object' && output !== null && 'error' in output
+        ? (output as { error?: string }).error
+        : undefined;
+    const errorMsg = errorDetail?.includes('timed out')
+      ? `⚠️ Agent session timed out for ${group.name}. Work may be incomplete — check logs or ask for a status update.`
+      : `⚠️ Agent error in ${group.name}. ${errorDetail ? errorDetail.slice(-150) : 'Check logs for details.'}`;
+
+    try {
+      await channel.sendMessage(chatJid, errorMsg);
+    } catch (notifyErr) {
+      logger.error(
+        { group: group.name, error: notifyErr },
+        'Failed to send error notification to user',
+      );
+    }
+
     // If we already sent output to the user, don't roll back the cursor —
     // the user got their response and re-processing would send duplicates.
     if (outputSentToUser) {

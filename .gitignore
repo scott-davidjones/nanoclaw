@@ -17,6 +17,9 @@ groups/main/*
 groups/global/*
 !groups/main/CLAUDE.md
 !groups/global/CLAUDE.md
+!groups/global/BASE_AGENTS.md
+!groups/global/BASE_SOUL.md
+!groups/global/agents/
 
 # Secrets
 *.keys.json
