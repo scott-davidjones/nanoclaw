@@ -15,6 +15,7 @@ import {
   GROUPS_DIR,
   IDLE_TIMEOUT,
   MCP_MEMORY_URL,
+  OLLAMA_ADMIN_TOOLS,
   TIMEZONE,
 } from './config.js';
 import { resolveGroupFolderPath, resolveGroupIpcPath } from './group-folder.js';
@@ -255,6 +256,11 @@ function buildContainerArgs(
   // Pass MCP memory server URL if configured
   if (MCP_MEMORY_URL) {
     args.push('-e', `MCP_MEMORY_URL=${MCP_MEMORY_URL}`);
+  }
+
+  // Forward Ollama admin tools flag if enabled
+  if (OLLAMA_ADMIN_TOOLS) {
+    args.push('-e', 'OLLAMA_ADMIN_TOOLS=true');
   }
 
   // Route API traffic through the credential proxy (containers never see real secrets)
