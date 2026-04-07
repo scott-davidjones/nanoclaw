@@ -63,7 +63,12 @@ export async function initBotPool(tokens: string[]): Promise<void> {
         botNameIndex.set(me.first_name.toLowerCase(), idx);
       }
       logger.info(
-        { username: me.username, name: me.first_name, id: me.id, poolSize: poolApis.length },
+        {
+          username: me.username,
+          name: me.first_name,
+          id: me.id,
+          poolSize: poolApis.length,
+        },
         'Pool bot initialized',
       );
     } catch (err) {
@@ -93,13 +98,19 @@ export async function sendPoolMessage(
   }
 
   // Match sender name to bot name — strip emoji and extra whitespace
-  const senderClean = sender.replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '').trim().toLowerCase();
+  const senderClean = sender
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '')
+    .trim()
+    .toLowerCase();
   let idx = botNameIndex.get(senderClean);
   if (idx === undefined) {
     // Fallback: round-robin for unknown senders
     idx = nextPoolIndex % poolApis.length;
     nextPoolIndex++;
-    logger.info({ sender, senderClean, groupFolder, poolIndex: idx }, 'No matching pool bot, using round-robin');
+    logger.info(
+      { sender, senderClean, groupFolder, poolIndex: idx },
+      'No matching pool bot, using round-robin',
+    );
   }
 
   const api = poolApis[idx];
@@ -110,10 +121,17 @@ export async function sendPoolMessage(
       await sendTelegramMessage(api, numericId, text);
     } else {
       for (let i = 0; i < text.length; i += MAX_LENGTH) {
-        await sendTelegramMessage(api, numericId, text.slice(i, i + MAX_LENGTH));
+        await sendTelegramMessage(
+          api,
+          numericId,
+          text.slice(i, i + MAX_LENGTH),
+        );
       }
     }
-    logger.info({ chatId, sender, poolIndex: idx, length: text.length }, 'Pool message sent');
+    logger.info(
+      { chatId, sender, poolIndex: idx, length: text.length },
+      'Pool message sent',
+    );
   } catch (err) {
     logger.error({ chatId, sender, err }, 'Failed to send pool message');
   }

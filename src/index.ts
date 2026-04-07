@@ -293,7 +293,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           : JSON.stringify(result.result);
 
       // Detect API 500 errors surfaced as agent output — suppress and retry
-      if (/API Error: 5\d{2}\b/.test(raw) || /"type":\s*"api_error"/.test(raw)) {
+      if (
+        /API Error: 5\d{2}\b/.test(raw) ||
+        /"type":\s*"api_error"/.test(raw)
+      ) {
         logger.warn(
           { group: group.name },
           'Agent output contains API server error, treating as retryable failure',
@@ -441,7 +444,9 @@ async function runAgent(
       const isStaleSession =
         sessionId &&
         output.error &&
-        /no conversation found|ENOENT.*\.jsonl|session.*not found/i.test(output.error);
+        /no conversation found|ENOENT.*\.jsonl|session.*not found/i.test(
+          output.error,
+        );
 
       if (isStaleSession) {
         logger.warn(

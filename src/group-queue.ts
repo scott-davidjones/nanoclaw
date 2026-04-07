@@ -34,8 +34,9 @@ export class GroupQueue {
   private waitingGroups: string[] = [];
   private processMessagesFn: ((groupJid: string) => Promise<boolean>) | null =
     null;
-  private notifyUserFn: ((groupJid: string, text: string) => Promise<void>) | null =
-    null;
+  private notifyUserFn:
+    | ((groupJid: string, text: string) => Promise<void>)
+    | null = null;
   private shuttingDown = false;
 
   private getGroup(groupJid: string): GroupState {
@@ -272,7 +273,8 @@ export class GroupQueue {
 
     // After 5 failed attempts, notify the user that we're still trying
     if (state.retryCount === 6 && this.notifyUserFn) {
-      this.notifyUserFn(groupJid,
+      this.notifyUserFn(
+        groupJid,
         '⚠️ Having trouble reaching the API — 5 attempts failed. Still retrying every 5 minutes...',
       ).catch(() => {});
     }
@@ -283,8 +285,9 @@ export class GroupQueue {
         'Max retries exceeded, giving up until next user message',
       );
       if (this.notifyUserFn) {
-        this.notifyUserFn(groupJid,
-          '❌ Gave up after 10 attempts — the API is not responding. Your message is preserved. Send me a message when you\'d like me to retry.',
+        this.notifyUserFn(
+          groupJid,
+          "❌ Gave up after 10 attempts — the API is not responding. Your message is preserved. Send me a message when you'd like me to retry.",
         ).catch(() => {});
       }
       state.retryCount = 0;
@@ -293,9 +296,10 @@ export class GroupQueue {
 
     // Retries 1-5: exponential backoff (5s, 10s, 20s, 40s, 80s)
     // Retries 6-10: fixed 5-minute intervals
-    const delayMs = state.retryCount <= 5
-      ? BASE_RETRY_MS * Math.pow(2, state.retryCount - 1)
-      : SLOW_RETRY_MS;
+    const delayMs =
+      state.retryCount <= 5
+        ? BASE_RETRY_MS * Math.pow(2, state.retryCount - 1)
+        : SLOW_RETRY_MS;
     logger.info(
       { groupJid, retryCount: state.retryCount, delayMs },
       'Scheduling retry with backoff',
