@@ -5,10 +5,11 @@ import { readEnvFile } from './env.js';
 import { isValidTimezone } from './timezone.js';
 
 // Read config values from .env (falls back to process.env).
+// Secrets (API keys, tokens) are NOT read here — they are loaded only
+// by the credential proxy (credential-proxy.ts), never exposed to containers.
 const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
-  'ONECLI_URL',
   'MCP_MEMORY_URL',
   'TELEGRAM_BOT_POOL',
   'TZ',
@@ -65,7 +66,6 @@ export const CREDENTIAL_PROXY_PORT = parseInt(
   process.env.CREDENTIAL_PROXY_PORT || '3001',
   10,
 );
-export const ONECLI_URL = process.env.ONECLI_URL || envConfig.ONECLI_URL;
 export const MCP_MEMORY_URL =
   process.env.MCP_MEMORY_URL || envConfig.MCP_MEMORY_URL || '';
 export const MAX_MESSAGES_PER_PROMPT = Math.max(
