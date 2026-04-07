@@ -16,6 +16,7 @@ vi.mock('./config.js', () => ({
   GROUPS_DIR: '/tmp/nanoclaw-test-groups',
   IDLE_TIMEOUT: 1800000, // 30min
   MCP_MEMORY_URL: '',
+  OLLAMA_ADMIN_TOOLS: false,
   TIMEZONE: 'America/Los_Angeles',
 }));
 
