@@ -12,6 +12,7 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'MCP_MEMORY_URL',
   'OLLAMA_ADMIN_TOOLS',
+  'ONECLI_URL',
   'TELEGRAM_BOT_POOL',
   'TZ',
 ]);
@@ -69,6 +70,7 @@ export const CREDENTIAL_PROXY_PORT = parseInt(
   process.env.CREDENTIAL_PROXY_PORT || '3001',
   10,
 );
+export const ONECLI_URL = process.env.ONECLI_URL || envConfig.ONECLI_URL;
 export const MCP_MEMORY_URL =
   process.env.MCP_MEMORY_URL || envConfig.MCP_MEMORY_URL || '';
 export const MAX_MESSAGES_PER_PROMPT = Math.max(
