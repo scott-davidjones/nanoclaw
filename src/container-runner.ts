@@ -289,10 +289,20 @@ async function buildContainerArgs(
   if (ONECLI_URL) {
     const onecliApplied = await onecli.applyContainerConfig(args, {
       addHostMapping: false,
-      agent: containerName,
     });
     if (onecliApplied) {
+      // Bypass OneCLI proxy for the local credential-proxy endpoint — the
+      // Anthropic base URL is served by a separate proxy on the host and
+      // must not be routed through OneCLI. Appending after applyContainerConfig
+      // ensures this NO_PROXY wins over any OneCLI-supplied default.
+      args.push('-e', 'NO_PROXY=host.docker.internal,localhost,127.0.0.1');
+      args.push('-e', 'no_proxy=host.docker.internal,localhost,127.0.0.1');
       logger.info({ containerName }, 'OneCLI gateway config applied');
+    } else {
+      logger.warn(
+        { containerName, onecliUrl: ONECLI_URL },
+        'OneCLI gateway config NOT applied — container will lack third-party credential injection',
+      );
     }
   }
 
@@ -343,7 +353,11 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = await buildContainerArgs(mounts, containerName, input.isMain);
+  const containerArgs = await buildContainerArgs(
+    mounts,
+    containerName,
+    input.isMain,
+  );
 
   logger.debug(
     {
