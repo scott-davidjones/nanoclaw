@@ -5,8 +5,8 @@ import { readEnvFile } from './env.js';
 import { isValidTimezone } from './timezone.js';
 
 // Read config values from .env (falls back to process.env).
-// Secrets (API keys, tokens) are NOT read here — they are loaded only
-// by the credential proxy (credential-proxy.ts), never exposed to containers.
+// Secrets (API keys, tokens) are NOT read here — they are injected into
+// containers by the OneCLI gateway, never exposed to the nanoclaw process.
 const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
@@ -66,10 +66,6 @@ export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
   process.env.CONTAINER_MAX_OUTPUT_SIZE || '10485760',
   10,
 ); // 10MB default
-export const CREDENTIAL_PROXY_PORT = parseInt(
-  process.env.CREDENTIAL_PROXY_PORT || '3001',
-  10,
-);
 export const ONECLI_URL = process.env.ONECLI_URL || envConfig.ONECLI_URL;
 export const MCP_MEMORY_URL =
   process.env.MCP_MEMORY_URL || envConfig.MCP_MEMORY_URL || '';
