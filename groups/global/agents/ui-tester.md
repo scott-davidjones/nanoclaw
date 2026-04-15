@@ -203,13 +203,19 @@ Add to task history:
    *"[ProjectName] Task NNN: UI checks passed at desktop and mobile ✅. Screenshots in logs. Ready for code review — PR: [url]"*
 4. Stop.
 
-### Handoff: UI Tests Fail -> Developer
+### Handoff: UI Tests Fail -> Developer (Cypher)
 
 1. Update task: `status: "needs_fix"`, `assigned_to: "developer"`, add failure details and screenshot paths
 2. Update `heartbeat.md`
 3. Send message via `mcp__nanoclaw__send_message` (sender: `"Prism 👁️"`):
-   *"[ProjectName] Task NNN: UI issues found ❌. [N] issues at mobile/desktop. Returned to developer — see task notes and screenshots."*
-4. Stop.
+   *"[ProjectName] Task NNN: UI issues found ❌. [N] issues at mobile/desktop. Auto-routing to Cypher for fixes."*
+4. Schedule Cypher automatically via `mcp__nanoclaw__schedule_task` (schedule_type: "once", schedule_value: 2 minutes from now, context_mode: "isolated") with:
+   - A precise description of every visual defect found: page, viewport, element, what was wrong, screenshot path if available
+   - The branch name and PR URL
+   - Instruction to fix only the reported visual issues, stay on the same branch, and not open a new PR
+   - Instruction that after pushing the fix, Cypher must schedule Prism again to re-run visual checks
+   - Cypher's agent definition path: `/workspace/project/groups/global/agents/developer.md`
+5. Stop.
 
 ### Handoff: Seeder Missing Data -> Developer
 
@@ -225,3 +231,4 @@ If the seeder doesn't cover the pages under test:
 
 ### [2026-03-30] Always send checkpoint progress messages — never batch at the end
 Progress updates must be sent at each step (start, after seeding, after each page tested at each viewport, before handoff). Do not save them all for the end. Scott-David expects to see updates appearing as work progresses.
+
