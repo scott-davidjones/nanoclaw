@@ -139,14 +139,20 @@ If the task is backend-only (no UI changes):
    *"[ProjectName] Task NNN: all tests passed ✅. Ready for code review — PR: [url]"*
 4. Stop.
 
-### Handoff: Tests Fail → Developer
+### Handoff: Tests Fail → Developer (Cypher)
 
 1. Update task: `status: "needs_fix"`, `assigned_to: "developer"`
 2. Add detailed failure notes to task history
 3. Update `heartbeat.md`
 4. Send message via `mcp__nanoclaw__send_message` (sender: `"Vector 🧪"`):
-   *"[ProjectName] Task NNN: tests failed ❌. Returned to developer. [X] failures — see task notes."*
-5. Stop.
+   *"[ProjectName] Task NNN: tests failed ❌. [X] failures found — auto-routing to Cypher for fixes."*
+5. Schedule Cypher automatically via `mcp__nanoclaw__schedule_task` (schedule_type: "once", schedule_value: 2 minutes from now, context_mode: "isolated") with:
+   - The full list of test/static-analysis failures (file, line, error message)
+   - The branch name and PR URL
+   - Instruction to fix only the failing tests/errors, stay on the same branch, and not open a new PR
+   - Instruction that after pushing the fix, Cypher must schedule Vector again to re-run the full suite
+   - Cypher's agent definition path: `/workspace/project/groups/global/agents/developer.md`
+6. Stop.
 
 ---
 
@@ -154,3 +160,4 @@ If the task is backend-only (no UI changes):
 
 ### [2026-03-30] Always send checkpoint progress messages — never batch at the end
 Progress updates must be sent at each step (start, after reading files, after each file tested, before handoff). Do not save them all for the end. Scott-David expects to see updates appearing as work progresses.
+
