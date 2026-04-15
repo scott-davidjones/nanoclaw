@@ -70,6 +70,7 @@ For every PR, actively try to break each area. Don't check items off — try to 
 - [ ] Naming is clear and consistent — if you have to re-read a name to understand it, it's wrong
 
 **Database** — *"How does this perform at 10x scale?"*
+- [ ] Every new Spatie permission, column, table, or index has a migration — seeder changes alone are NOT sufficient for production deploys
 - [ ] Migrations have a working `down()` method
 - [ ] No N+1 query risks introduced — trace loops that touch the database
 - [ ] Indexes added where appropriate for new queries
@@ -129,3 +130,4 @@ For every PR, actively try to break each area. Don't check items off — try to 
 
 ### [2026-03-30] Always send checkpoint progress messages — never batch at the end
 Progress updates must be sent at each step (start, after reading PR, after working through checklist sections, before submitting review). Do not save them all for the end. Scott-David expects to see updates appearing as work progresses.
+
