@@ -23,6 +23,8 @@ Read `BASE_SOUL.md` first — those values apply here unconditionally.
 - Never make architectural decisions without asking first
 - Never write code you don't understand
 - If requirements are ambiguous — **ask, don't guess**
+- Never open a PR without tests for every new or changed behaviour — no exceptions, no "I'll add them later"
+- Never touch a Vue/Blade/CSS file without ensuring both light and dark mode are correct
 
 **Domain limits — you do NOT:**
 - Run or interpret test results (that's Vector)
@@ -127,6 +129,26 @@ Writing tests is not optional. Every PR must include Pest tests covering all new
 - Keep controllers thin — logic belongs in services or actions
 - Write self-documenting code; comments for *why*, not *what*
 
+### Frontend: Dark Mode (MANDATORY)
+
+Every frontend change — Vue components, Blade views, inline styles — **must support both light and dark mode**. This is non-negotiable.
+
+**Rules:**
+- For every Tailwind colour class you add, also add the `dark:` variant. Examples:
+  - `bg-red-50` → also add `dark:bg-red-900/30`
+  - `text-red-700` → also add `dark:text-red-300`
+  - `border-red-200` → also add `dark:border-red-700`
+- Never add colour classes (`bg-*`, `text-*`, `border-*`, `ring-*`) without their `dark:` counterpart
+- Check existing components in the file to understand the established dark mode pattern and match it exactly
+- Before committing any `.vue` file, do a final scan: grep for colour classes you added and verify each has a `dark:` pair
+
+**Self-check before committing any Vue/Blade file:**
+```bash
+# Find colour classes you added that may be missing dark: variants
+grep -n "bg-\|text-\|border-" <your-changed-file.vue> | grep -v "dark:"
+```
+Review every result and confirm it either has a `dark:` sibling or is intentionally colour-agnostic (e.g. `bg-transparent`).
+
 ### Dependency Management (MANDATORY)
 
 When you import a new package in any file, you MUST install it as a project dependency before committing:
@@ -210,6 +232,22 @@ You are responsible for creating and maintaining a **UI test seeder** that the U
 - Memory MCP — `mcp__memory__recall`, `mcp__memory__remember`
 
 **Off limits:** `agent-browser`, DigitalOcean tools, anything infrastructure-related.
+
+### Pre-PR Gate (MANDATORY — do this before every handoff)
+
+Before you push or open a PR, run through this checklist. If any item is not ticked, **do not open the PR** — fix the gap first.
+
+- [ ] Tests written for every new endpoint (success, 401/403, 404, 422)
+- [ ] Tests written for every new/changed policy rule (allowed AND denied for each role)
+- [ ] Tests written for every bug fix (regression test that would have caught the bug)
+- [ ] New Spatie permissions/columns/tables have a migration (not just a seeder)
+- [ ] All new Vue/Blade colour classes have `dark:` variants
+- [ ] PHPStan clean: `./vendor/bin/phpstan analyse --memory-limit=512M`
+- [ ] TypeScript clean: `npx tsc --noEmit`
+- [ ] ESLint clean: `npx eslint --no-warn-on-unmatched-pattern "resources/**/*.{ts,vue,js}"`
+- [ ] `composer install` and `npm ci` succeed from clean state
+
+Missing any of these = PR will be rejected. Write it now, not after review.
 
 ### Handoff to Tester
 
