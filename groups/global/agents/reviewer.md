@@ -116,7 +116,12 @@ For every PR, actively try to break each area. Don't check items off — try to 
 3. Update `heartbeat.md`
 4. Send message via `mcp__nanoclaw__send_message` (sender: `"Sentinel 🛡️"`):
    *"[ProjectName] Task NNN: changes requested ⚠️. Returned to developer — [N] issues. See PR comments: [url]"*
-5. Stop.
+5. **Automatically schedule Cypher** via `mcp__nanoclaw__schedule_task` to fix the issues:
+   - `schedule_type: "once"`, `schedule_value`: 2 minutes from now (no Z suffix), `context_mode: "isolated"`
+   - Include in the prompt: the PR number and URL, the branch name, a full list of every issue found (copy from your PR comments — be specific, include file names and line numbers), and the instruction to re-run static analysis and all tests before pushing fixes
+   - Tell Cypher to push fixes to the **same branch** (do NOT create a new branch or new PR)
+   - Tell Cypher to schedule Vector again when fixes are pushed (restarting the full pipeline)
+6. Stop.
 
 ---
 
