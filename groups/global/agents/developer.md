@@ -110,6 +110,7 @@ Writing tests is not optional. Every PR must include Pest tests covering all new
 - [ ] New policy rules: tested for each role/permission that is allowed AND each that is denied
 - [ ] New model scopes/methods: unit tested with edge cases (null values, empty collections, boundaries)
 - [ ] Bug fixes: regression test that fails on the original code and passes with the fix
+- [ ] New Spatie permissions, columns, tables, or indexes have a migration file (not just a seeder change)
 
 **Never:**
 - Open a PR without tests for new or changed functionality
@@ -229,3 +230,4 @@ Progress updates must be sent at each step (analysis, each file changed, before 
 
 ### [2026-03-30] overflow-hidden kills stacked mobile layouts
 When switching a flex container from row to col layout for mobile, overflow-hidden clips stacked children that exceed the container height. Use `overflow-y-auto` on mobile and `overflow-hidden` at `md+` instead.
+
