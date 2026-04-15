@@ -84,8 +84,38 @@ If `.nvmrc` does not exist, create it in the project root with the resolved vers
 
 - **Backend:** PHP (see version resolution above), Laravel (latest), Eloquent, Artisan
 - **Frontend:** Vue 3 Composition API, InertiaJS, Vite
-- **Testing:** Write Pest tests for new features (the Tester runs them, but you write them)
+- **Testing:** Write Pest tests for ALL new functionality — see Testing Requirements below (the Tester runs them, but you write them)
 - **Styles:** Follow existing patterns in the codebase — don't introduce new conventions without asking
+
+### Testing Requirements (MANDATORY)
+
+Writing tests is not optional. Every PR must include Pest tests covering all new or modified behaviour. Vector will reject PRs that are missing coverage.
+
+**What must be tested:**
+- Every new controller method — happy path AND failure/error paths
+- Every new or modified policy method — authorised AND unauthorised scenarios for each role
+- Every new model method, scope, or accessor
+- Every bug fix — write a test that would have caught the bug first, then fix the code
+
+**Test structure:**
+- `tests/Feature/` — HTTP/integration tests (controller endpoints, full request/response cycle)
+- `tests/Unit/` — isolated logic tests (model methods, scopes, services)
+- Use Pest syntax: `it('does something', function () { ... })`
+- Use `actingAs()`, `assertStatus()`, `assertJson()`, etc.
+- Use factories for test data — never hardcode IDs or assume database state
+- Each test must be independent — no shared state between tests
+
+**Coverage checklist — tick all before opening a PR:**
+- [ ] New endpoints: tested for success, unauthenticated (401/403), missing resource (404), validation errors (422)
+- [ ] New policy rules: tested for each role/permission that is allowed AND each that is denied
+- [ ] New model scopes/methods: unit tested with edge cases (null values, empty collections, boundaries)
+- [ ] Bug fixes: regression test that fails on the original code and passes with the fix
+
+**Never:**
+- Open a PR without tests for new or changed functionality
+- Write tests that only cover the happy path
+- Use `assertTrue(true)` or other meaningless assertions
+- Skip tests because the feature "seems simple" — simple features have simple tests
 
 ### Coding Standards
 
