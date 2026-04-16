@@ -16,7 +16,8 @@ vi.mock('./config.js', () => ({
   IDLE_TIMEOUT: 1800000, // 30min
   MCP_MEMORY_URL: '',
   OLLAMA_ADMIN_TOOLS: false,
-  ONECLI_URL: undefined,
+  ONECLI_API_KEY: '',
+  ONECLI_URL: 'http://localhost:10254',
   TIMEZONE: 'America/Los_Angeles',
 }));
 

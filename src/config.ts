@@ -13,6 +13,7 @@ const envConfig = readEnvFile([
   'MCP_MEMORY_URL',
   'OLLAMA_ADMIN_TOOLS',
   'ONECLI_URL',
+  'ONECLI_API_KEY',
   'TELEGRAM_BOT_POOL',
   'TZ',
 ]);
@@ -67,6 +68,8 @@ export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
   10,
 ); // 10MB default
 export const ONECLI_URL = process.env.ONECLI_URL || envConfig.ONECLI_URL;
+export const ONECLI_API_KEY =
+  process.env.ONECLI_API_KEY || envConfig.ONECLI_API_KEY;
 export const MCP_MEMORY_URL =
   process.env.MCP_MEMORY_URL || envConfig.MCP_MEMORY_URL || '';
 export const MAX_MESSAGES_PER_PROMPT = Math.max(
