@@ -17,7 +17,7 @@ vi.mock('./config.js', () => ({
   MCP_MEMORY_URL: '',
   OLLAMA_ADMIN_TOOLS: false,
   ONECLI_API_KEY: '',
-  ONECLI_URL: 'http://localhost:10254',
+  ONECLI_URL: undefined,
   TIMEZONE: 'America/Los_Angeles',
 }));
 
