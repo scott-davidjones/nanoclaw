@@ -246,6 +246,7 @@ function buildVolumeMounts(
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
+  model?: string,
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -260,6 +261,12 @@ function buildContainerArgs(
   // Forward Ollama admin tools flag if enabled
   if (OLLAMA_ADMIN_TOOLS) {
     args.push('-e', 'OLLAMA_ADMIN_TOOLS=true');
+  }
+
+  // Per-group model (e.g. a LiteLLM virtual model name). Unset means the
+  // upstream proxy picks the default model.
+  if (model) {
+    args.push('-e', `ANTHROPIC_MODEL=${model}`);
   }
 
   // Route API traffic through the credential proxy (containers never see real secrets)
@@ -319,7 +326,11 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const containerArgs = buildContainerArgs(
+    mounts,
+    containerName,
+    group.containerConfig?.model,
+  );
 
   logger.debug(
     {
