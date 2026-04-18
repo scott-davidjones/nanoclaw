@@ -14,6 +14,18 @@ vi.mock('../config.js', () => ({
   TRIGGER_PATTERN: /^@Andy\b/i,
 }));
 
+// Mock transcription
+vi.mock('../transcription.js', () => ({
+  transcribeWithWhisperCpp: vi.fn(async () => 'hello world'),
+}));
+
+// Mock https.get for Telegram file downloads
+const mockHttpsGet = vi.hoisted(() => vi.fn());
+vi.mock('https', async (importOriginal) => {
+  const original = (await importOriginal()) as any;
+  return { ...original, default: { ...original.default, get: mockHttpsGet } };
+});
+
 // Mock logger
 vi.mock('../logger.js', () => ({
   logger: {
@@ -596,17 +608,39 @@ describe('TelegramChannel', () => {
       );
     });
 
-    it('stores voice message with placeholder', async () => {
+    it('transcribes voice message with whisper', async () => {
       const opts = createTestOpts();
       const channel = new TelegramChannel('test-token', opts);
       await channel.connect();
 
-      const ctx = createMediaCtx({});
+      const ctx = {
+        ...createMediaCtx({}),
+        getFile: vi.fn(async () => ({
+          file_path: 'voice/file_0.oga',
+        })),
+      };
+
+      // Mock https.get to return fake audio data
+      const { Readable } = await import('stream');
+      mockHttpsGet.mockImplementation((_url: any, cb: any) => {
+        const mockResponse = Object.assign(
+          new Readable({
+            read() {
+              this.push(Buffer.from('fake-audio'));
+              this.push(null);
+            },
+          }),
+          { statusCode: 200 },
+        );
+        cb(mockResponse);
+        return { on: vi.fn().mockReturnThis() } as any;
+      });
+
       await triggerMediaMessage('message:voice', ctx);
 
       expect(opts.onMessage).toHaveBeenCalledWith(
         'tg:100200300',
-        expect.objectContaining({ content: '[Voice message]' }),
+        expect.objectContaining({ content: '[Voice: hello world]' }),
       );
     });
 
