@@ -137,6 +137,28 @@ function buildVolumeMounts(
     }
   }
 
+  // Brain repo — studio engineering standards, read-only
+  // Mounted to /workspace/brain when BRAIN_ROOT env var points to a valid
+  // directory on the host. Contains CLAUDE.md, stack-specific standards
+  // (laravel.md, flutter.md, etc), and project context. Referenced by
+  // BASE_AGENTS.md so all sub-agents can consult it at task start.
+  //
+  // Read-only because this is the canonical source of truth — writes go
+  // through the brain repo's own git workflow, not through agents.
+  const brainRoot = process.env.BRAIN_ROOT;
+  if (brainRoot && fs.existsSync(brainRoot)) {
+    mounts.push({
+      hostPath: brainRoot,
+      containerPath: '/workspace/brain',
+      readonly: true,
+    });
+  } else if (brainRoot) {
+    logger.warn(
+      { brainRoot },
+      'BRAIN_ROOT is set but directory does not exist — skipping brain mount',
+    );
+  }
+
   // Per-group Claude sessions directory (isolated from other groups)
   // Each group gets their own .claude/ to prevent cross-group session access
   const groupSessionsDir = path.join(

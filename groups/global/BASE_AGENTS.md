@@ -13,7 +13,8 @@ Every agent, at the start of every task:
 3. Read `learnings.md` — mistakes and lessons from all past sessions
 4. Recall memory via `mcp__memory__recall` for the relevant project
 5. Read your task file from `/workspace/group/tasks/`
-6. Update `heartbeat.md` with your name, timestamp, and what you're starting
+6. If the task involves writing, reviewing, or testing code — read the relevant stack standards from `/workspace/brain/standards/` (see **Stack Standards** below)
+7. Update `heartbeat.md` with your name, timestamp, and what you're starting
 
 ---
 
@@ -45,6 +46,38 @@ git config user.email "scott@in-line.studio"
 - Use `mcp__memory__remember` to store important discoveries, patterns, and decisions
 - Append to `learnings.md` when something goes wrong or a better pattern is found
 - Write to the daily log at `/workspace/group/logs/YYYY-MM-DD.md`
+
+---
+
+## Stack Standards
+
+The studio's engineering standards live in `/workspace/brain/standards/` — a read-only mount of the canonical brain repo. These standards apply to every project and are the source of truth for how In-Line Studio writes code.
+
+**What's there:**
+
+- `/workspace/brain/standards/CLAUDE.md` — global non-negotiable rules (check stacks/ before starting, follow existing patterns, never introduce dependencies without checking)
+- `/workspace/brain/standards/stacks/laravel.md` — PHP/Laravel: Boost tooling, PHP 8.3, Pint, Pest, Vite, deployment pattern
+- `/workspace/brain/standards/stacks/craft-cms.md` — Craft CMS: Project Config rules, `craft up --interactive=0`, deployment
+- `/workspace/brain/standards/stacks/flutter.md` — Flutter: Riverpod, fastlane, GitHub Actions
+- `/workspace/brain/standards/stacks/vue-typescript.md` — Vue 3 Composition API, TypeScript strict, pnpm, Pinia, Axios
+- `/workspace/brain/standards/stacks/python.md` — Python 3.12+, uv, Ruff, pytest, strict mypy
+
+**When to read what:**
+
+- **Always read** `/workspace/brain/standards/CLAUDE.md` at task start — it's short and applies universally
+- **Read the relevant stack file** when the task touches that stack:
+  - PHP/Blade files → `laravel.md`
+  - Twig templates or `config/project/` → `craft-cms.md`
+  - `.dart` files → `flutter.md`
+  - `.vue`, `.ts`, `.tsx` files → `vue-typescript.md`
+  - `.py` files → `python.md`
+- **Read multiple stack files** for polyglot projects (e.g. a Laravel + Vue app reads both `laravel.md` and `vue-typescript.md`)
+
+**If `/workspace/brain/` does not exist:** the host doesn't have `BRAIN_ROOT` set. Proceed with the standards in the agent's own instruction file and memory — but note the gap in `learnings.md` so it can be fixed.
+
+**Never write to `/workspace/brain/`** — it's read-only by design. The canonical brain repo is managed on the host via git, not from inside agent containers. If you believe a standard needs changing, raise it via `mcp__nanoclaw__send_message` to Scott-David rather than trying to edit.
+
+**These standards complement, not replace, your agent instructions.** Your agent file (developer.md, reviewer.md, etc) defines *what you do and in what order*. The brain repo defines *how the studio writes code in a given stack*. Both apply.
 
 ---
 
