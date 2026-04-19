@@ -30,6 +30,10 @@ export interface AllowedRoot {
 export interface ContainerConfig {
   additionalMounts?: AdditionalMount[];
   timeout?: number; // Default: 300000 (5 minutes)
+  // LiteLLM virtual model name (or any Anthropic-format model ID) the container
+  // should use. Passed through as ANTHROPIC_MODEL. Omit to use the LiteLLM
+  // proxy's default routing.
+  model?: string;
 }
 
 export interface RegisteredGroup {

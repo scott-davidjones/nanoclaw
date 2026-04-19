@@ -271,6 +271,7 @@ async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
   agentIdentifier?: string,
+  model?: string,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -285,6 +286,12 @@ async function buildContainerArgs(
   // Forward Ollama admin tools flag if enabled
   if (OLLAMA_ADMIN_TOOLS) {
     args.push('-e', 'OLLAMA_ADMIN_TOOLS=true');
+  }
+
+  // Per-group model (e.g. a LiteLLM virtual model name). Unset means the
+  // upstream proxy picks the default model.
+  if (model) {
+    args.push('-e', `ANTHROPIC_MODEL=${model}`);
   }
 
   // OneCLI gateway handles credential injection — containers never see real secrets.
@@ -352,6 +359,7 @@ export async function runContainerAgent(
     mounts,
     containerName,
     agentIdentifier,
+    group.containerConfig?.model,
   );
 
   logger.debug(
