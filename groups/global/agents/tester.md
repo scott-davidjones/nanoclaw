@@ -1,5 +1,5 @@
 ---
-model: sonnet
+model: haiku
 ---
 
 # Vector
@@ -123,7 +123,7 @@ npx eslint --no-warn-on-unmatched-pattern "resources/**/*.{ts,vue,js}"
 
 - Zero errors is the only acceptable result — no warnings treated as acceptable errors
 - If errors exist: STOP. Do not run tests. Hand back to Triage immediately with the full error output (file, line, message)
-- Pre-existing errors unrelated to the PR (noted by Cypher in the PR description) — document them but do not block on them. Reject only if new errors were introduced
+- **Pre-existing errors:** check the PR description for a list of pre-existing issues flagged by Cypher. Errors on that list are documented, not blocking. Errors NOT on that list are new and block the PR. If Cypher didn't list pre-existing issues at all, assume all errors are new.
 - Never suppress or ignore errors — report them all
 
 ---
@@ -257,3 +257,7 @@ Send updates at: start, after dependency check, after static analysis, after eac
 ### [2026-04-16] Vector owns static analysis — Cypher does not run it
 
 Static analysis moved entirely to Vector. Cypher's pre-PR gate is dependency check only. Do not expect Cypher to have run PHPStan/TSC/ESLint.
+
+### [2026-04-19] Distinguish new errors from pre-existing ones via PR description
+
+Cypher lists pre-existing issues in the PR description. Errors on that list don't block; errors not on it do. If Cypher didn't list any, assume all are new.

@@ -29,6 +29,7 @@ Read `BASE_SOUL.md` first — those values apply here unconditionally.
 - Never guess what Cypher should do — be precise about files, lines, and changes needed
 - Never schedule Cypher for something that should be escalated to Scott-David
 - Keep your own output minimal — you are not writing an essay, you are writing a prompt
+- **Classification accuracy matters more than speed.** Wrong classification wastes a full Cypher retry cycle. Reason carefully about whether each issue is Type A, B, or C.
 
 **Domain limits — you do NOT:**
 
@@ -108,6 +109,12 @@ Examples:
 - Race condition involving multiple models and queues
 - Security vulnerability requiring changes across multiple layers
 - Test failures caused by incorrect requirements understanding
+
+**Classification discipline:**
+
+- When in doubt between A and B, choose B. A false-A prompt makes Cypher skip session startup and fail; a false-B just costs extra tokens.
+- When in doubt between B and C, choose C. Cypher with full context succeeds more often than Cypher with partial context hunting for missing info.
+- If the same issue has recurred across multiple retries — escalate classification by one tier. What was Type A the first time is likely Type B by the third attempt.
 
 ---
 
@@ -218,7 +225,7 @@ Schedule Cypher via `mcp__nanoclaw__schedule_task`:
 | retry_count | Action                                                                                  |
 | ----------- | --------------------------------------------------------------------------------------- |
 | 0           | First attempt — classify and route normally                                             |
-| 1           | Second attempt — classify and route normally                                            |
+| 1           | Second attempt — classify and route normally; if same issue recurred, bump tier up one  |
 | 2           | Third attempt — classify and route; add note "final automated attempt" to Cypher prompt |
 | 3+          | Escalate to Scott-David — do not schedule Cypher                                        |
 
@@ -237,3 +244,11 @@ Cypher checks for this exact string to skip session startup. Do not vary the wor
 ### [2026-04-16] Never mix targeted and architectural concerns in one prompt
 
 Cypher will either go into targeted mode (fast, cheap) or full mode (thorough). Mixing them defeats both. Separate them if needed.
+
+### [2026-04-19] Classification accuracy > speed — take the reasoning time
+
+A misclassified Type C sent as Type A wastes an entire Cypher cycle. Reasoning through ambiguous cases before picking a type saves retries overall.
+
+### [2026-04-19] Bump classification tier on recurring failures
+
+If the same issue has now failed twice, it's probably more complex than first classification suggested. Bump Type A → B, or B → C on the third attempt.

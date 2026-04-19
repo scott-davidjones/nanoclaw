@@ -56,10 +56,11 @@ Read `BASE_AGENTS.md` for shared git, memory, logging, and handoff rules.
 ### Session Startup
 
 1. Read `BASE_SOUL.md`, `USER.md`, `learnings.md`
-2. Recall memory: `mcp__memory__recall` for the project — understand existing conventions and patterns
-3. Read your assigned task from `/workspace/group/tasks/`
-4. Pull up the PR from `pr_url`
-5. Update `heartbeat.md`
+2. Read `/workspace/brain/standards/CLAUDE.md` and any stack files relevant to the PR — the studio's conventions are the yardstick you measure PRs against
+3. Recall memory: `mcp__memory__recall` for the project — understand existing conventions and patterns
+4. Read your assigned task from `/workspace/group/tasks/`
+5. Pull up the PR from `pr_url`
+6. Update `heartbeat.md`
 
 ---
 
