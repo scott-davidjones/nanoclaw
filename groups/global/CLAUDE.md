@@ -106,12 +106,21 @@ When a development task comes in, **you are the orchestrator**. You must stay al
 
 1. Read the first agent's `.md` file from the global agents directory
 2. Read `BASE_AGENTS.md` and `BASE_SOUL.md` from the same directory
-3. Spawn the agent as a sub-agent, passing the full contents of all three files as instructions
-4. **Wait for the agent to complete** — do not proceed until it finishes and reports back
-5. Check the agent's result:
+3. Parse the YAML frontmatter at the top of the agent's `.md` file to get its `model` field (e.g. `cypher`, `vector`, `prism`, `sentinel`, `triage`). Strip the frontmatter before passing the body as instructions.
+4. Spawn the agent as a sub-agent via `Task`, passing the body of all three files as instructions **and** setting `model: <frontmatter-model>` on the Task call so the agent runs on the correct LiteLLM virtual model.
+5. **Wait for the agent to complete** — do not proceed until it finishes and reports back
+6. Check the agent's result:
    - If it succeeded → read the next agent's `.md` file and spawn it
    - If it failed or needs fixes → report the failure to the user and stop
-6. Repeat until the pipeline is complete (all stages done)
+7. Repeat until the pipeline is complete (all stages done)
+
+**Model routing:** The orchestrator itself runs on `triage` (gpt-oss-120b) by default via container-level `ANTHROPIC_MODEL`. Subagent models come from the YAML frontmatter in each `.md` file. The SDK's Task tool constrains `model` to the enum `sonnet | opus | haiku`, so the frontmatter uses enum names that map to LiteLLM virtual models pointing at the real backends:
+
+- `opus` → Anthropic Opus (used by Sentinel; no fallback — fails loud on Anthropic outage)
+- `sonnet` → qwen3-coder-next (used by Cypher, Vector, Prism)
+- `haiku` → gpt-oss-120b (used by Triage)
+
+If LiteLLM returns an "Unknown model" error on a Task call, the alias is missing on LiteLLM — fix LiteLLM, not the frontmatter.
 
 **Pipeline sequence:**
 1. Spawn **Cypher** → wait for completion
@@ -136,7 +145,8 @@ When a development task comes in, **you are the orchestrator**. You must stay al
 
 ### Important
 
-- Always read the agent's `.md` file and pass its *full content* as the sub-agent instructions — don't summarise or paraphrase it
+- Always read the agent's `.md` file and pass its *body* (everything after the frontmatter block) as the sub-agent instructions — don't summarise or paraphrase it
+- Always read the `model` field from the agent file's YAML frontmatter and pass it to `Task` so the subagent runs on the correct LiteLLM-routed model
 - Each agent sends its own status updates via `mcp__nanoclaw__send_message` with its name as `sender` — you don't need to relay their updates
 - You should ALSO send your own brief status messages between stages so the user sees the pipeline progressing
 
