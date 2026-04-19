@@ -411,6 +411,12 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  // Fallback text buffer: some upstreams (e.g. reasoning models routed via
+  // LiteLLM) emit content arrays where the text block sits after thinking
+  // blocks, and the SDK's pre-extracted result.result can come through empty.
+  // We concatenate the text-type blocks of every assistant message so we have
+  // a safety net when that happens.
+  let assistantTextFallback = '';
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
@@ -513,6 +519,18 @@ async function runQuery(
 
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
+      const content = (
+        message as {
+          message?: { content?: Array<{ type: string; text?: string }> };
+        }
+      ).message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (block.type === 'text' && typeof block.text === 'string') {
+            assistantTextFallback += block.text;
+          }
+        }
+      }
     }
 
     if (message.type === 'system' && message.subtype === 'init') {
@@ -538,14 +556,16 @@ async function runQuery(
       resultCount++;
       const textResult =
         'result' in message ? (message as { result?: string }).result : null;
+      const finalText = textResult || assistantTextFallback || null;
       log(
-        `Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`,
+        `Result #${resultCount}: subtype=${message.subtype}${finalText ? ` text=${finalText.slice(0, 200)}` : ''}${!textResult && assistantTextFallback ? ' (from assistant fallback)' : ''}`,
       );
       writeOutput({
         status: 'success',
-        result: textResult || null,
+        result: finalText,
         newSessionId,
       });
+      assistantTextFallback = '';
     }
   }
 
