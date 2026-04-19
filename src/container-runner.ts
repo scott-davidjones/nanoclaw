@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 
 import {
+  ANTHROPIC_BASE_URL,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
@@ -297,8 +298,8 @@ async function buildContainerArgs(
   // Route Claude SDK traffic via LiteLLM (or any configured upstream). OneCLI
   // MITMs the TLS connection to this host and injects the credential whose
   // host-pattern matches it.
-  if (process.env.ANTHROPIC_BASE_URL) {
-    args.push('-e', `ANTHROPIC_BASE_URL=${process.env.ANTHROPIC_BASE_URL}`);
+  if (ANTHROPIC_BASE_URL) {
+    args.push('-e', `ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}`);
   }
 
   // OneCLI gateway handles credential injection — containers never see real secrets.

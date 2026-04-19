@@ -8,6 +8,7 @@ import { isValidTimezone } from './timezone.js';
 // Secrets (API keys, tokens) are NOT read here — they are injected into
 // containers by the OneCLI gateway, never exposed to the nanoclaw process.
 const envConfig = readEnvFile([
+  'ANTHROPIC_BASE_URL',
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
   'MCP_MEMORY_URL',
@@ -67,6 +68,8 @@ export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
   process.env.CONTAINER_MAX_OUTPUT_SIZE || '10485760',
   10,
 ); // 10MB default
+export const ANTHROPIC_BASE_URL =
+  process.env.ANTHROPIC_BASE_URL || envConfig.ANTHROPIC_BASE_URL;
 export const ONECLI_URL = process.env.ONECLI_URL || envConfig.ONECLI_URL;
 export const ONECLI_API_KEY =
   process.env.ONECLI_API_KEY || envConfig.ONECLI_API_KEY;
