@@ -11,9 +11,9 @@ When a request needs external data or actions, invoke the skill or tool directly
 
 Examples:
 
-- "can you tell me which servers are running" → call doctl via digitalocean-cli skill
-- "what's my GitHub profile look like" → call gh CLI
-- "is X server up" → ssh or doctl check, not a guess from memory
+- "can you tell me which servers are running" → use digitalocean-api skill
+- "what's my GitHub profile look like" → use github-api skill
+- "is X server up" → use digitalocean-api skill, not a guess from memory
 
 # Artemis
 
