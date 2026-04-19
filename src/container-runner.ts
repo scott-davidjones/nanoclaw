@@ -14,6 +14,7 @@ import {
   DATA_DIR,
   GROUPS_DIR,
   IDLE_TIMEOUT,
+  LOG_RAW_LLM_RESPONSES,
   MCP_MEMORY_URL,
   OLLAMA_ADMIN_TOOLS,
   ONECLI_API_KEY,
@@ -300,6 +301,11 @@ async function buildContainerArgs(
   // host-pattern matches it.
   if (ANTHROPIC_BASE_URL) {
     args.push('-e', `ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}`);
+  }
+
+  // Opt-in raw LLM response dump in the agent-runner log.
+  if (LOG_RAW_LLM_RESPONSES) {
+    args.push('-e', 'LOG_RAW_LLM_RESPONSES=1');
   }
 
   // OneCLI gateway handles credential injection — containers never see real secrets.

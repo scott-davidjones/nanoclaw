@@ -11,6 +11,7 @@ const envConfig = readEnvFile([
   'ANTHROPIC_BASE_URL',
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
+  'LOG_RAW_LLM_RESPONSES',
   'MCP_MEMORY_URL',
   'OLLAMA_ADMIN_TOOLS',
   'ONECLI_URL',
@@ -70,6 +71,12 @@ export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
 ); // 10MB default
 export const ANTHROPIC_BASE_URL =
   process.env.ANTHROPIC_BASE_URL || envConfig.ANTHROPIC_BASE_URL;
+// Opt-in dump of full SDK BetaMessage JSON per assistant turn (agent-runner
+// writes to container stderr -> logs/container-*.log). Useful when diagnosing
+// LiteLLM response-translation issues (e.g. redactions, empty content blocks).
+export const LOG_RAW_LLM_RESPONSES =
+  (process.env.LOG_RAW_LLM_RESPONSES ||
+    envConfig.LOG_RAW_LLM_RESPONSES) === '1';
 export const ONECLI_URL = process.env.ONECLI_URL || envConfig.ONECLI_URL;
 export const ONECLI_API_KEY =
   process.env.ONECLI_API_KEY || envConfig.ONECLI_API_KEY;
