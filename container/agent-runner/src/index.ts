@@ -17,6 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
+import { extractAssistantText, summariseContent } from './content-blocks.js';
 import {
   query,
   HookCallback,
@@ -411,12 +412,10 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
-  // Fallback text buffer: some upstreams (e.g. reasoning models routed via
-  // LiteLLM) emit content arrays where the text block sits after thinking
-  // blocks, and the SDK's pre-extracted result.result can come through empty.
-  // We concatenate the text-type blocks of every assistant message so we have
-  // a safety net when that happens.
+  // Safety-net text buffer — see extractAssistantText's docstring for the
+  // scope / constraints. Only used when the SDK's own result.result is empty.
   let assistantTextFallback = '';
+  const logRawLlm = process.env.LOG_RAW_LLM_RESPONSES === '1';
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
   const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
@@ -519,16 +518,20 @@ async function runQuery(
 
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
-      const content = (
-        message as {
-          message?: { content?: Array<{ type: string; text?: string }> };
-        }
-      ).message?.content;
-      if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === 'text' && typeof block.text === 'string') {
-            assistantTextFallback += block.text;
-          }
+      const betaMessage = (message as { message?: unknown }).message;
+      const content = (betaMessage as { content?: unknown })?.content as
+        | Array<{ type: string; text?: string }>
+        | undefined;
+      assistantTextFallback += extractAssistantText(content);
+      const summary = summariseContent(content);
+      log(
+        `Assistant content: blocks=${summary.count} types=[${summary.types.join(',')}] textChars=${summary.textLength}`,
+      );
+      if (logRawLlm) {
+        try {
+          log(`Assistant raw: ${JSON.stringify(betaMessage)}`);
+        } catch {
+          /* ignore serialise failure */
         }
       }
     }
