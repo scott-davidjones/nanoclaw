@@ -716,9 +716,14 @@ async function main(): Promise<void> {
 
   // Credentials are injected by the host's credential proxy via ANTHROPIC_BASE_URL.
   // No real secrets exist in the container environment.
+  // CLAUDE_CODE_AUTO_COMPACT_WINDOW fallback. Normal deployments receive
+  // this from the orchestrator via NANOCLAW_AUTO_COMPACT_WINDOW env var
+  // (see src/config.ts AUTO_COMPACT_WINDOW). The inline default exists
+  // as a safety net for direct container invocations that bypass the
+  // orchestrator.
   const sdkEnv: Record<string, string | undefined> = {
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW: '60000',
     ...process.env,
-    CLAUDE_CODE_AUTO_COMPACT_WINDOW: '165000',
   };
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));

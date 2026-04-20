@@ -69,6 +69,14 @@ export const CONTAINER_MAX_OUTPUT_SIZE = parseInt(
   process.env.CONTAINER_MAX_OUTPUT_SIZE || '10485760',
   10,
 ); // 10MB default
+// Auto-compact threshold passed to the Claude Agent SDK inside the container.
+// SDK default is 165000 (tuned for Sonnet's 200k window). We run local models
+// (qwen3 via LiteLLM) where prompt processing cost grows noticeably past ~50k,
+// so we compact earlier.
+export const AUTO_COMPACT_WINDOW = parseInt(
+  process.env.NANOCLAW_AUTO_COMPACT_WINDOW || '60000',
+  10,
+);
 export const ANTHROPIC_BASE_URL =
   process.env.ANTHROPIC_BASE_URL || envConfig.ANTHROPIC_BASE_URL;
 // Opt-in dump of full SDK BetaMessage JSON per assistant turn (agent-runner

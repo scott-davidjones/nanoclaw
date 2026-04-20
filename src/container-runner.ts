@@ -8,6 +8,7 @@ import path from 'path';
 
 import {
   ANTHROPIC_BASE_URL,
+  AUTO_COMPACT_WINDOW,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_TIMEOUT,
@@ -367,6 +368,8 @@ async function buildContainerArgs(
   if (LOG_RAW_LLM_RESPONSES) {
     args.push('-e', 'LOG_RAW_LLM_RESPONSES=1');
   }
+
+  args.push('-e', `CLAUDE_CODE_AUTO_COMPACT_WINDOW=${AUTO_COMPACT_WINDOW}`);
 
   // OneCLI gateway handles credential injection — containers never see real secrets.
   // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
