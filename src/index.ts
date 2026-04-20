@@ -19,6 +19,7 @@ import {
 } from './channels/registry.js';
 import {
   ContainerOutput,
+  handleEmptyResponseSentinel,
   runContainerAgent,
   writeGroupsSnapshot,
   writeTasksSnapshot,
@@ -305,6 +306,23 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   const output = await runAgent(group, prompt, chatJid, async (result) => {
     // Streaming output callback — called for each agent result
+
+    // Empty-response guard: sentinel from agent-runner indicates the model
+    // produced only thinking / no user-visible content. Notify the user
+    // via the shared helper instead of falling silent.
+    if (result.emptyResponse) {
+      const handled = await handleEmptyResponseSentinel(
+        result,
+        { group: group.name, chatJid, prompt },
+        (text) => channel.sendMessage(chatJid, text),
+      );
+      if (handled) {
+        outputSentToUser = true;
+        resetIdleTimer();
+        return;
+      }
+    }
+
     if (result.result) {
       const raw =
         typeof result.result === 'string'

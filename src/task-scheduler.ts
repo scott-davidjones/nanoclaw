@@ -5,6 +5,7 @@ import fs from 'fs';
 import { ASSISTANT_NAME, SCHEDULER_POLL_INTERVAL, TIMEZONE } from './config.js';
 import {
   ContainerOutput,
+  handleEmptyResponseSentinel,
   runContainerAgent,
   writeTasksSnapshot,
 } from './container-runner.js';
@@ -185,6 +186,21 @@ async function runTask(
       (proc, containerName) =>
         deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
       async (streamedOutput: ContainerOutput) => {
+        // Empty-response guard: shared helper notifies the user when the
+        // model emitted only a thinking block / no visible content.
+        if (streamedOutput.emptyResponse) {
+          await handleEmptyResponseSentinel(
+            streamedOutput,
+            {
+              group: group.name,
+              chatJid: task.chat_jid,
+              prompt: task.prompt,
+            },
+            (text) => deps.sendMessage(task.chat_jid, text),
+          );
+          scheduleClose();
+          return;
+        }
         if (streamedOutput.result) {
           result = streamedOutput.result;
           // Forward result to user (sendMessage handles formatting)

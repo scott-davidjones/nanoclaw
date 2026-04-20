@@ -17,7 +17,13 @@
 import fs from 'fs';
 import path from 'path';
 import { execFile } from 'child_process';
-import { extractAssistantText, summariseContent } from './content-blocks.js';
+import {
+  ContentBlock,
+  extractAssistantText,
+  extractThinkingText,
+  isEmptyAssistantResponse,
+  summariseContent,
+} from './content-blocks.js';
 import {
   query,
   HookCallback,
@@ -36,11 +42,20 @@ interface ContainerInput {
   script?: string;
 }
 
+interface EmptyResponseInfo {
+  model?: string;
+  inputTokens?: number;
+  thinkingPreview?: string;
+  contentTypes: string[];
+  timestamp: string;
+}
+
 interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
   error?: string;
+  emptyResponse?: EmptyResponseInfo;
 }
 
 interface SessionEntry {
@@ -415,6 +430,10 @@ async function runQuery(
   // Safety-net text buffer — see extractAssistantText's docstring for the
   // scope / constraints. Only used when the SDK's own result.result is empty.
   let assistantTextFallback = '';
+  // Capture latest assistant turn metadata for empty-response diagnostics.
+  let lastAssistantContent: ContentBlock[] | undefined;
+  let lastAssistantModel: string | undefined;
+  let lastAssistantInputTokens: number | undefined;
   const logRawLlm = process.env.LOG_RAW_LLM_RESPONSES === '1';
 
   // Load global CLAUDE.md as additional system context (shared across all groups)
@@ -520,9 +539,19 @@ async function runQuery(
       lastAssistantUuid = (message as { uuid: string }).uuid;
       const betaMessage = (message as { message?: unknown }).message;
       const content = (betaMessage as { content?: unknown })?.content as
-        | Array<{ type: string; text?: string }>
+        | ContentBlock[]
         | undefined;
       assistantTextFallback += extractAssistantText(content);
+      lastAssistantContent = content;
+      const model = (betaMessage as { model?: string }).model;
+      if (typeof model === 'string' && model.length > 0) {
+        lastAssistantModel = model;
+      }
+      const usage = (betaMessage as { usage?: { input_tokens?: number } })
+        .usage;
+      if (typeof usage?.input_tokens === 'number') {
+        lastAssistantInputTokens = usage.input_tokens;
+      }
       const summary = summariseContent(content);
       log(
         `Assistant content: blocks=${summary.count} types=[${summary.types.join(',')}] textChars=${summary.textLength}`,
@@ -563,12 +592,41 @@ async function runQuery(
       log(
         `Result #${resultCount}: subtype=${message.subtype}${finalText ? ` text=${finalText.slice(0, 200)}` : ''}${!textResult && assistantTextFallback ? ' (from assistant fallback)' : ''}`,
       );
-      writeOutput({
-        status: 'success',
-        result: finalText,
-        newSessionId,
-      });
+
+      // Empty-response guard: local models (qwen3 via LiteLLM) occasionally
+      // emit a thinking block with text:"" and no tool_use, which produces
+      // complete silence for the user. Detect and surface a sentinel so
+      // the host can notify the user instead of failing silently.
+      if (!finalText && isEmptyAssistantResponse(lastAssistantContent)) {
+        const thinking = extractThinkingText(lastAssistantContent);
+        const summary = summariseContent(lastAssistantContent);
+        log(
+          `EMPTY RESPONSE detected: model=${lastAssistantModel || 'unknown'} inputTokens=${lastAssistantInputTokens ?? 'unknown'} thinkingChars=${thinking.length} types=[${summary.types.join(',')}]`,
+        );
+        if (thinking) {
+          log(`Empty-response thinking content: ${thinking}`);
+        }
+        writeOutput({
+          status: 'success',
+          result: null,
+          newSessionId,
+          emptyResponse: {
+            model: lastAssistantModel,
+            inputTokens: lastAssistantInputTokens,
+            thinkingPreview: thinking ? thinking.slice(0, 500) : undefined,
+            contentTypes: summary.types,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      } else {
+        writeOutput({
+          status: 'success',
+          result: finalText,
+          newSessionId,
+        });
+      }
       assistantTextFallback = '';
+      lastAssistantContent = undefined;
     }
   }
 

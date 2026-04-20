@@ -16,6 +16,7 @@
 export interface ContentBlock {
   type: string;
   text?: string;
+  thinking?: string;
 }
 
 export function extractAssistantText(
@@ -25,6 +26,60 @@ export function extractAssistantText(
   let out = '';
   for (const block of content) {
     if (block && block.type === 'text' && typeof block.text === 'string') {
+      out += block.text;
+    }
+  }
+  return out;
+}
+
+/**
+ * Detect whether an assistant content array is a "dead" response — one
+ * the user cannot see. Some local models (e.g. qwen3 behind LiteLLM) emit
+ * a thinking block followed by `text: ""` with no tool_use, producing
+ * complete silence for the user.
+ *
+ * Empty = no tool_use AND no text block with non-whitespace content.
+ * Thinking blocks alone don't count — the user can't see those.
+ *
+ * Returns false for non-arrays and empty arrays so callers don't spuriously
+ * flag "no assistant turn yet" as a failure.
+ */
+export function isEmptyAssistantResponse(
+  content: ContentBlock[] | undefined | null,
+): boolean {
+  if (!Array.isArray(content) || content.length === 0) return false;
+  for (const block of content) {
+    if (!block || typeof block.type !== 'string') continue;
+    if (block.type === 'tool_use') return false;
+    if (
+      block.type === 'text' &&
+      typeof block.text === 'string' &&
+      block.text.trim().length > 0
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Extract concatenated thinking-block content for diagnostic logging when
+ * a response is detected as empty. Different upstreams store the reasoning
+ * text under `thinking` or `text`; try both.
+ */
+export function extractThinkingText(
+  content: ContentBlock[] | undefined | null,
+): string {
+  if (!Array.isArray(content)) return '';
+  let out = '';
+  for (const block of content) {
+    if (!block || typeof block.type !== 'string') continue;
+    if (block.type !== 'thinking' && block.type !== 'redacted_thinking') {
+      continue;
+    }
+    if (typeof block.thinking === 'string') {
+      out += block.thinking;
+    } else if (typeof block.text === 'string') {
       out += block.text;
     }
   }
