@@ -50,11 +50,71 @@ export interface ContainerInput {
   script?: string;
 }
 
+export interface EmptyResponseInfo {
+  model?: string;
+  inputTokens?: number;
+  thinkingPreview?: string;
+  contentTypes?: string[];
+  timestamp: string;
+}
+
 export interface ContainerOutput {
   status: 'success' | 'error';
   result: string | null;
   newSessionId?: string;
   error?: string;
+  emptyResponse?: EmptyResponseInfo;
+}
+
+/**
+ * User-facing message for empty-response failures. Deliberately specific:
+ * qwen3 drops tool_use more on conversational phrasings than imperatives,
+ * so the copy nudges the user toward a direct re-prompt.
+ */
+export const EMPTY_RESPONSE_USER_MESSAGE =
+  "⚠️ The model finished reasoning but didn't produce a reply. Try " +
+  "rephrasing more directly — e.g. 'list my servers' rather than 'can you " +
+  "tell me which servers are running'. Or name the tool you want used.";
+
+/**
+ * Centralised handler for the emptyResponse sentinel. Called from every
+ * response path (streaming interactive, scheduled tasks, and — if ever
+ * used — the legacy fallback) so the guard logic lives in one place and
+ * future paths inherit it by routing their ContainerOutput through here.
+ *
+ * Logs rich diagnostics (model, input tokens, thinking content) and sends
+ * the user-facing message via the provided callback. Returns true when
+ * the sentinel was present, so callers can skip normal result handling.
+ */
+export async function handleEmptyResponseSentinel(
+  output: ContainerOutput,
+  context: { group: string; chatJid: string; prompt?: string },
+  sendMessage: (text: string) => Promise<void>,
+): Promise<boolean> {
+  if (!output.emptyResponse) return false;
+  logger.warn(
+    {
+      group: context.group,
+      chatJid: context.chatJid,
+      model: output.emptyResponse.model,
+      inputTokens: output.emptyResponse.inputTokens,
+      contentTypes: output.emptyResponse.contentTypes,
+      thinkingPreview: output.emptyResponse.thinkingPreview,
+      promptChars: context.prompt?.length,
+      promptPreview: context.prompt?.slice(0, 200),
+      timestamp: output.emptyResponse.timestamp,
+    },
+    'Model produced empty response (thinking-only, no user-visible content)',
+  );
+  try {
+    await sendMessage(EMPTY_RESPONSE_USER_MESSAGE);
+  } catch (err) {
+    logger.error(
+      { group: context.group, chatJid: context.chatJid, err },
+      'Failed to notify user of empty response',
+    );
+  }
+  return true;
 }
 
 interface VolumeMount {
@@ -712,6 +772,21 @@ export async function runContainerAgent(
           },
           'Container completed',
         );
+
+        // Legacy (non-streaming) callers receive the sentinel on the
+        // returned output itself — they must route it through
+        // handleEmptyResponseSentinel. No caller uses this path today,
+        // but log a warning so the failure surfaces in logs if it ever
+        // triggers and a future caller forgets the handler.
+        if (output.emptyResponse) {
+          logger.warn(
+            {
+              group: group.name,
+              emptyResponse: output.emptyResponse,
+            },
+            'Legacy path: emptyResponse sentinel in returned output — caller must invoke handleEmptyResponseSentinel',
+          );
+        }
 
         resolve(output);
       } catch (err) {

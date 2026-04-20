@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   extractAssistantText,
+  extractThinkingText,
+  isEmptyAssistantResponse,
   summariseContent,
 } from '../container/agent-runner/src/content-blocks.js';
 
@@ -68,6 +70,105 @@ describe('extractAssistantText', () => {
         { type: 'text', text: 'real' },
       ]),
     ).toBe('real');
+  });
+});
+
+describe('isEmptyAssistantResponse', () => {
+  it('returns false for non-array / empty array (no assistant turn yet)', () => {
+    expect(isEmptyAssistantResponse(undefined)).toBe(false);
+    expect(isEmptyAssistantResponse(null)).toBe(false);
+    expect(isEmptyAssistantResponse([])).toBe(false);
+  });
+
+  it('flags the qwen3-via-LiteLLM [thinking, text:""] failure shape', () => {
+    // Exact shape observed in production litellm logs: 1335 tokens of
+    // reasoning followed by an empty text block with stop_reason=end_turn
+    // and no tool_use. User sees nothing.
+    expect(
+      isEmptyAssistantResponse([
+        {
+          type: 'thinking',
+          thinking: '[1335 tokens of reasoning about what to do]',
+        },
+        { type: 'text', text: '' },
+      ]),
+    ).toBe(true);
+  });
+
+  it('flags thinking-only responses with no text block at all', () => {
+    expect(
+      isEmptyAssistantResponse([
+        { type: 'thinking', thinking: 'hmm, what should I do' },
+      ]),
+    ).toBe(true);
+  });
+
+  it('flags text blocks containing only whitespace', () => {
+    expect(
+      isEmptyAssistantResponse([
+        { type: 'thinking', thinking: 'reasoning' },
+        { type: 'text', text: '   \n\t  ' },
+      ]),
+    ).toBe(true);
+  });
+
+  it('does NOT flag responses containing tool_use (agent is acting)', () => {
+    expect(
+      isEmptyAssistantResponse([
+        { type: 'thinking', thinking: 'I should call the tool' },
+        { type: 'tool_use' },
+      ]),
+    ).toBe(false);
+  });
+
+  it('does NOT flag responses with non-empty text content', () => {
+    expect(
+      isEmptyAssistantResponse([
+        { type: 'thinking', thinking: 'reasoning' },
+        { type: 'text', text: 'Here is your answer.' },
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe('extractThinkingText', () => {
+  it('returns empty string for non-array / empty input', () => {
+    expect(extractThinkingText(undefined)).toBe('');
+    expect(extractThinkingText(null)).toBe('');
+    expect(extractThinkingText([])).toBe('');
+  });
+
+  it('extracts from the `thinking` field (primary shape)', () => {
+    expect(
+      extractThinkingText([
+        { type: 'thinking', thinking: 'step one. ' },
+        { type: 'text', text: 'visible' },
+        { type: 'thinking', thinking: 'step two.' },
+      ]),
+    ).toBe('step one. step two.');
+  });
+
+  it('falls back to `text` field when `thinking` is absent', () => {
+    expect(
+      extractThinkingText([{ type: 'thinking', text: 'legacy shape' }]),
+    ).toBe('legacy shape');
+  });
+
+  it('includes redacted_thinking blocks', () => {
+    expect(
+      extractThinkingText([
+        { type: 'redacted_thinking', thinking: 'sensitive' },
+      ]),
+    ).toBe('sensitive');
+  });
+
+  it('ignores non-thinking blocks', () => {
+    expect(
+      extractThinkingText([
+        { type: 'text', text: 'visible output' },
+        { type: 'tool_use' },
+      ]),
+    ).toBe('');
   });
 });
 
