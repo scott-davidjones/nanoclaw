@@ -1,3 +1,8 @@
+---
+name: digitalocean-api
+description: Call the DigitalOcean API via curl — droplets, DNS, databases, Kubernetes, apps, account and balance. Authentication is handled by the OneCLI gateway; no tokens needed. Use whenever the user asks about DO resources or wants to list, create, update, or delete them.
+---
+
 # DigitalOcean API
 
 Access the DigitalOcean API via `curl`. Authentication is handled automatically by the OneCLI gateway — no tokens needed.
