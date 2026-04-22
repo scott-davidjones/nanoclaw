@@ -1,3 +1,8 @@
+---
+name: github-api
+description: Call the GitHub API via curl — repos, pull requests, issues, Actions workflows, releases, users, orgs, and code search. Authentication is handled by the OneCLI gateway; no tokens needed. Use whenever the user asks about GitHub resources or wants to create, comment on, review, merge, or close any of them.
+---
+
 # GitHub API
 
 Access the GitHub API via `curl`. Authentication is handled automatically by the OneCLI gateway — no tokens needed.
