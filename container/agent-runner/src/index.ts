@@ -30,7 +30,13 @@ import {
   query,
   HookCallback,
   PreCompactHookInput,
+  PreToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
+import {
+  extractBashCommand,
+  extractSkillName,
+  loadSkillConstraints,
+} from './skills.js';
 import { fileURLToPath } from 'url';
 
 interface ContainerInput {
@@ -172,6 +178,57 @@ function getSessionSummary(
   }
 
   return null;
+}
+
+/**
+ * PreToolUse hook: enforce per-skill deniedCommands.
+ *
+ * When a Bash tool invocation is about to run inside a skill context, check
+ * the skill's deniedCommands patterns. If any match the Bash `command`
+ * string, deny with a reason the model sees on its next turn.
+ *
+ * Skill context is passed in via the `getActiveSkill` closure — the caller
+ * (runQuery) updates activeSkillName eagerly when it sees Skill tool_use
+ * blocks in assistant messages, so the getter returns the most recent skill
+ * invocation's name by the time this hook fires.
+ *
+ * Only Bash is checked. Other tool types pass through unchanged even if
+ * a skill declared matching patterns — the deniedCommands convention targets
+ * Bash commands specifically.
+ */
+function createPreToolUseHook(
+  skillConstraints: Map<string, RegExp[]>,
+  getActiveSkill: () => string | null,
+): HookCallback {
+  return async (input) => {
+    const hook = input as PreToolUseHookInput;
+    if (hook.tool_name !== 'Bash') return {};
+
+    const skillName = getActiveSkill();
+    if (!skillName) return {};
+
+    const patterns = skillConstraints.get(skillName);
+    if (!patterns || patterns.length === 0) return {};
+
+    const command = extractBashCommand(hook.tool_input);
+    if (!command) return {};
+
+    for (const pat of patterns) {
+      if (pat.test(command)) {
+        log(
+          `PreToolUse DENY: skill="${skillName}" pattern=${pat} command="${command.slice(0, 200)}"`,
+        );
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse' as const,
+            permissionDecision: 'deny' as const,
+            permissionDecisionReason: `Skill "${skillName}" forbids commands matching ${pat}. Stop the attempt, report the blocked operation to the user, and do not retry with variations.`,
+          },
+        };
+      }
+    }
+    return {};
+  };
 }
 
 /**
@@ -439,6 +496,16 @@ async function runQuery(
   );
   let toolUseCount = 0;
   const recentToolCalls: Array<{ name: string; input: string }> = [];
+  // Per-turn skill-context scope: reset on every runQuery entry. If the
+  // model invokes Skill(X) then does unrelated work later in the same turn,
+  // X's deniedCommands still apply; next turn starts fresh.
+  let activeSkillName: string | null = null;
+  const skillConstraints = loadSkillConstraints(undefined, log);
+  if (skillConstraints.size > 0) {
+    log(
+      `Skill constraints loaded: ${Array.from(skillConstraints.keys()).join(', ')}`,
+    );
+  }
   // Safety-net text buffer — see extractAssistantText's docstring for the
   // scope / constraints. Only used when the SDK's own result.result is empty.
   let assistantTextFallback = '';
@@ -536,6 +603,13 @@ async function runQuery(
         PreCompact: [
           { hooks: [createPreCompactHook(containerInput.assistantName)] },
         ],
+        PreToolUse: [
+          {
+            hooks: [
+              createPreToolUseHook(skillConstraints, () => activeSkillName),
+            ],
+          },
+        ],
       },
     },
   })) {
@@ -576,6 +650,10 @@ async function runQuery(
       }
 
       // Loop-break guard: count tool_use blocks, throw at threshold.
+      // Eager skill-context scan: if any block is a Skill-tool invocation,
+      // update activeSkillName synchronously so the PreToolUse hook for any
+      // sibling tool in this same message (or subsequent messages in this
+      // turn) sees the current skill context.
       const toolUses: ToolUseBlock[] = extractToolUses(content);
       for (const call of toolUses) {
         toolUseCount++;
@@ -587,6 +665,13 @@ async function runQuery(
         }
         recentToolCalls.push({ name: call.name, input: inputPreview });
         if (recentToolCalls.length > 10) recentToolCalls.shift();
+        if (call.name === 'Skill') {
+          const skillName = extractSkillName(call.input);
+          if (skillName) {
+            activeSkillName = skillName;
+            log(`Active skill set to "${skillName}"`);
+          }
+        }
       }
       if (toolUseCount >= maxToolUses) {
         log(
