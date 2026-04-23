@@ -26,11 +26,11 @@ where `<command>` is one of `connect`, `message`, or `response`, and `<server>` 
 
 ## Available commands
 
-| Name       | Invocation (run inside `/home/deploy/tpp/current`)         |
-|------------|------------------------------------------------------------|
-| `connect`  | `poetry run python -m tpp.main sequence connect`           |
-| `message`  | `poetry run python -m tpp.main sequence message`           |
-| `response` | `poetry run python -m tpp.main response`                   |
+| Name       | Invocation                                                                                                        |
+|------------|-------------------------------------------------------------------------------------------------------------------|
+| `connect`  | `cd /home/deploy/tpp/current && /home/deploy/.local/bin/poetry run python -m tpp.main sequence connect`           |
+| `message`  | `cd /home/deploy/tpp/current && /home/deploy/.local/bin/poetry run python -m tpp.main sequence message`           |
+| `response` | `cd /home/deploy/tpp/current && /home/deploy/.local/bin/poetry run python -m tpp.main response`                   |
 
 All three run to completion — they log output to stdout and exit. None stream indefinitely. `response` is the standalone afternoon command; `connect` and `message` are sequence subcommands.
 
