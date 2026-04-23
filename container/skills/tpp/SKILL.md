@@ -1,6 +1,6 @@
 ---
 name: tpp
-description: Run TPP management commands (response, connect, check, message) on a remote server via SSH. Triggers on phrases like "run the <command> command on <server>", "can you run <command> on <server>", or "<command> on <server>" where <command> is one of response/connect/check/message. Resolves the server from a cached registry or via DigitalOcean lookup, picks a working SSH key, runs the command, and reports success or failure (non-zero exit or Python traceback).
+description: Run TPP management commands (connect, message, response) on a remote server via SSH. Triggers on phrases like "run the <command> command on <server>", "can you run <command> on <server>", or "<command> on <server>" where <command> is one of connect/message/response. Resolves the server from a cached registry or via DigitalOcean lookup, picks a working SSH key, runs the command, and reports success or failure (non-zero exit or Python traceback).
 ---
 
 # TPP Server Commands
@@ -15,18 +15,17 @@ Trigger on phrases like:
 - "can you run `<command>` on `<server>`"
 - "`<command>` on `<server>`"
 
-where `<command>` is one of `response`, `connect`, `check`, or `message`, and `<server>` is a short name like `martis`.
+where `<command>` is one of `connect`, `message`, or `response`, and `<server>` is a short name like `martis`.
 
 ## Available commands
 
-| Name       | Invocation (run inside `/home/deploy/tpp/current`) |
-|------------|----------------------------------------------------|
-| `response` | `poetry run python -m tpp.main response`           |
-| `connect`  | `poetry run python -m tpp.main connect`            |
-| `check`    | `poetry run python -m tpp.main check`              |
-| `message`  | `poetry run python -m tpp.main message`            |
+| Name       | Invocation (run inside `/home/deploy/tpp/current`)         |
+|------------|------------------------------------------------------------|
+| `connect`  | `poetry run python -m tpp.main sequence connect`           |
+| `message`  | `poetry run python -m tpp.main sequence message`           |
+| `response` | `poetry run python -m tpp.main response`                   |
 
-All four run to completion — they log output to stdout and exit. None stream indefinitely.
+All three run to completion — they log output to stdout and exit. None stream indefinitely. `response` is the standalone afternoon command; `connect` and `message` are sequence subcommands.
 
 ## Server registry
 
@@ -133,7 +132,9 @@ This keeps every container invocation short and decouples the remote job from th
 
 ### 1. Kick off the job on the remote
 
-Generate a job ID first (use `date +%s` for the timestamp). Then run:
+First look up the **full invocation** for `<command>` in the Available commands table above (e.g. `connect` → `sequence connect`, `response` → `response`). Call the subcommand portion `<subcommand>` below — it may be one or multiple tokens.
+
+Generate a job ID (use `date +%s` for the timestamp). Then run:
 
 ```bash
 JOB_ID="tpp-<command>-$(date +%s)"
@@ -146,7 +147,7 @@ ssh -i <identityFile> -p <port> \
      LOG=\"/tmp/\${JOB_ID}.log\"; \
      EXITF=\"/tmp/\${JOB_ID}.exit\"; \
      PIDF=\"/tmp/\${JOB_ID}.pid\"; \
-     setsid bash -l -c \"cd /home/deploy/tpp/current && poetry run python -m tpp.main <command>; echo \\\$? > \$EXITF\" \
+     setsid bash -l -c \"cd /home/deploy/tpp/current && poetry run python -m tpp.main <subcommand>; echo \\\$? > \$EXITF\" \
        > \$LOG 2>&1 < /dev/null & \
      echo \$! > \$PIDF; \
      echo \"JOB_ID=\$JOB_ID PID=\$(cat \$PIDF) LOG=\$LOG\""
@@ -154,7 +155,7 @@ ssh -i <identityFile> -p <port> \
 
 Notes:
 
-- **Login shell (`bash -l -c`)** is required so `poetry` resolves on `PATH`. If that still fails with `poetry: command not found`, fall back to `/home/deploy/.local/bin/poetry run python -m tpp.main <command>`.
+- **Login shell (`bash -l -c`)** is required so `poetry` resolves on `PATH`. If that still fails with `poetry: command not found`, fall back to `/home/deploy/.local/bin/poetry run python -m tpp.main <subcommand>`.
 - **The three redirects `> $LOG 2>&1 < /dev/null`** are all required. Without closing stdin from `/dev/null`, SSH will hang waiting for the backgrounded child to close its stdio streams — the disown doesn't help there.
 - **Cross-user directory access.** The working directory `/home/deploy/tpp/current` lives under the `deploy` user's home, but you're connecting as `artemis`. If you see `Permission denied` when entering the directory, stop immediately and report it to the user — do **not** try to `sudo` or escalate.
 - SSH returns immediately with `JOB_ID=… PID=… LOG=…`. Parse those for the next step.
@@ -268,7 +269,7 @@ User: "can you run the message command on martis"
 2. `curl https://api.digitalocean.com/v2/droplets | jq …` finds a droplet named `martis` at `203.0.113.5`.
 3. Try each key in `/workspace/extra/persist/.ssh/`. `artemis_ed25519` authenticates.
 4. Write the martis entry into `servers.json`.
-5. Kick off detached: `ssh artemis@203.0.113.5 "JOB_ID='tpp-message-1712345678'; setsid bash -l -c 'cd /home/deploy/tpp/current && poetry run python -m tpp.main message; echo \$? > /tmp/\${JOB_ID}.exit' > /tmp/\${JOB_ID}.log 2>&1 < /dev/null & echo \$! > /tmp/\${JOB_ID}.pid; echo \"JOB_ID=\$JOB_ID PID=\$(cat /tmp/\${JOB_ID}.pid) LOG=/tmp/\${JOB_ID}.log\""`
+5. Kick off detached (`message` maps to `sequence message`): `ssh artemis@203.0.113.5 "JOB_ID='tpp-message-1712345678'; setsid bash -l -c 'cd /home/deploy/tpp/current && poetry run python -m tpp.main sequence message; echo \$? > /tmp/\${JOB_ID}.exit' > /tmp/\${JOB_ID}.log 2>&1 < /dev/null & echo \$! > /tmp/\${JOB_ID}.pid; echo \"JOB_ID=\$JOB_ID PID=\$(cat /tmp/\${JOB_ID}.pid) LOG=/tmp/\${JOB_ID}.log\""`
 6. Append the job to `tpp-jobs.json`.
 7. `schedule_task` a "Check TPP job tpp-message-1712345678" task for `<now + 5m>`, isolated mode.
 8. Reply: "Started `message` on martis (job `tpp-message-1712345678`, PID 12345). I'll check back in 5 minutes."
