@@ -1,5 +1,3 @@
-/no_think
-
 ## Tool Usage (CRITICAL)
 
 When a request needs external data or actions, invoke the skill or tool directly. Do NOT describe what you would do — do it.
