@@ -19,8 +19,10 @@ import path from 'path';
 import { execFile } from 'child_process';
 import {
   ContentBlock,
+  ToolUseBlock,
   extractAssistantText,
   extractThinkingText,
+  extractToolUses,
   isEmptyAssistantResponse,
   summariseContent,
 } from './content-blocks.js';
@@ -427,6 +429,16 @@ async function runQuery(
   let lastAssistantUuid: string | undefined;
   let messageCount = 0;
   let resultCount = 0;
+  // Loop-break guard. See src/config.ts MAX_TOOL_CALLS_PER_TURN for rationale.
+  // Counter is per-turn (per runQuery) and does NOT reset on compaction —
+  // the 2026-04-23 incident looped past compaction, so resetting would defeat
+  // the guard.
+  const maxToolUses = Math.max(
+    1,
+    parseInt(process.env.NANOCLAW_MAX_TOOL_CALLS_PER_TURN || '40', 10) || 40,
+  );
+  let toolUseCount = 0;
+  const recentToolCalls: Array<{ name: string; input: string }> = [];
   // Safety-net text buffer — see extractAssistantText's docstring for the
   // scope / constraints. Only used when the SDK's own result.result is empty.
   let assistantTextFallback = '';
@@ -561,6 +573,33 @@ async function runQuery(
         } catch {
           /* ignore serialise failure */
         }
+      }
+
+      // Loop-break guard: count tool_use blocks, throw at threshold.
+      const toolUses: ToolUseBlock[] = extractToolUses(content);
+      for (const call of toolUses) {
+        toolUseCount++;
+        let inputPreview = '';
+        try {
+          inputPreview = JSON.stringify(call.input).slice(0, 200);
+        } catch {
+          inputPreview = String(call.input).slice(0, 200);
+        }
+        recentToolCalls.push({ name: call.name, input: inputPreview });
+        if (recentToolCalls.length > 10) recentToolCalls.shift();
+      }
+      if (toolUseCount >= maxToolUses) {
+        log(
+          `LOOP GUARD TRIPPED: ${toolUseCount} tool calls in one turn (max=${maxToolUses}). Last ${recentToolCalls.length}:`,
+        );
+        for (const [i, c] of recentToolCalls.entries()) {
+          log(`  [${i + 1}] ${c.name}: ${c.input}`);
+        }
+        stream.end();
+        ipcPolling = false;
+        throw new Error(
+          `Agent got stuck in a loop after ${toolUseCount} tool calls. Retry with more specific direction or break the task into smaller steps.`,
+        );
       }
     }
 

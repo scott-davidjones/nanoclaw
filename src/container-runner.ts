@@ -16,6 +16,7 @@ import {
   GROUPS_DIR,
   IDLE_TIMEOUT,
   LOG_RAW_LLM_RESPONSES,
+  MAX_TOOL_CALLS_PER_TURN,
   MCP_MEMORY_URL,
   OLLAMA_ADMIN_TOOLS,
   ONECLI_API_KEY,
@@ -370,6 +371,10 @@ async function buildContainerArgs(
   }
 
   args.push('-e', `CLAUDE_CODE_AUTO_COMPACT_WINDOW=${AUTO_COMPACT_WINDOW}`);
+  args.push(
+    '-e',
+    `NANOCLAW_MAX_TOOL_CALLS_PER_TURN=${MAX_TOOL_CALLS_PER_TURN}`,
+  );
 
   // OneCLI gateway handles credential injection — containers never see real secrets.
   // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.
