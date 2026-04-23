@@ -26,11 +26,11 @@ where `<command>` is one of `connect`, `message`, or `response`, and `<server>` 
 
 ## Available commands
 
-| Name       | Invocation                                                                                                        |
-|------------|-------------------------------------------------------------------------------------------------------------------|
-| `connect`  | `cd /home/deploy/tpp/current && /home/deploy/.local/bin/poetry run python -m tpp.main sequence connect`           |
-| `message`  | `cd /home/deploy/tpp/current && /home/deploy/.local/bin/poetry run python -m tpp.main sequence message`           |
-| `response` | `cd /home/deploy/tpp/current && /home/deploy/.local/bin/poetry run python -m tpp.main response`                   |
+| Name       | Invocation                                       |
+|------------|--------------------------------------------------|
+| `connect`  | `/home/deploy/tpp/current/tpp sequence connect`  |
+| `message`  | `/home/deploy/tpp/current/tpp sequence message`  |
+| `response` | `/home/deploy/tpp/current/tpp response`          |
 
 All three run to completion — they log output to stdout and exit. None stream indefinitely. `response` is the standalone afternoon command; `connect` and `message` are sequence subcommands.
 
@@ -154,7 +154,7 @@ ssh -i <identityFile> -p <port> \
      LOG=\"/tmp/\${JOB_ID}.log\"; \
      EXITF=\"/tmp/\${JOB_ID}.exit\"; \
      PIDF=\"/tmp/\${JOB_ID}.pid\"; \
-     setsid bash -l -c \"cd /home/deploy/tpp/current && poetry run python -m tpp.main <subcommand>; echo \\\$? > \$EXITF\" \
+     setsid bash -c \"/home/deploy/tpp/current/tpp <subcommand>; echo \\\$? > \$EXITF\" \
        > \$LOG 2>&1 < /dev/null & \
      echo \$! > \$PIDF; \
      echo \"JOB_ID=\$JOB_ID PID=\$(cat \$PIDF) LOG=\$LOG\""
@@ -162,9 +162,8 @@ ssh -i <identityFile> -p <port> \
 
 Notes:
 
-- **Login shell (`bash -l -c`)** is required so `poetry` resolves on `PATH`. If that still fails with `poetry: command not found`, fall back to `/home/deploy/.local/bin/poetry run python -m tpp.main <subcommand>`.
 - **The three redirects `> $LOG 2>&1 < /dev/null`** are all required. Without closing stdin from `/dev/null`, SSH will hang waiting for the backgrounded child to close its stdio streams — the disown doesn't help there.
-- **Cross-user directory access.** The working directory `/home/deploy/tpp/current` lives under the `deploy` user's home, but you're connecting as `artemis`. If you see `Permission denied` when entering the directory, stop immediately and report it to the user — do **not** try to `sudo` or escalate.
+- **Cross-user binary access.** The TPP binary lives under the `deploy` user's home, but you're connecting as `artemis`. If you see `Permission denied` executing `/home/deploy/tpp/current/tpp` (or traversing any of its parent directories), stop immediately and report it to the user — do **not** try to `sudo` or escalate.
 - SSH returns immediately with `JOB_ID=… PID=… LOG=…`. Parse those for the next step.
 
 ### 2. Record the job
@@ -293,7 +292,7 @@ User: "can you run the message command on martis"
 2. `curl https://api.digitalocean.com/v2/droplets | jq …` finds a droplet named `martis` at `203.0.113.5`.
 3. Try each key in `/workspace/extra/persist/.ssh/`. `artemis_ed25519` authenticates.
 4. Write the martis entry into `servers.json`.
-5. Kick off detached (`message` maps to `sequence message`): `ssh artemis@203.0.113.5 "JOB_ID='tpp-message-1712345678'; setsid bash -l -c 'cd /home/deploy/tpp/current && poetry run python -m tpp.main sequence message; echo \$? > /tmp/\${JOB_ID}.exit' > /tmp/\${JOB_ID}.log 2>&1 < /dev/null & echo \$! > /tmp/\${JOB_ID}.pid; echo \"JOB_ID=\$JOB_ID PID=\$(cat /tmp/\${JOB_ID}.pid) LOG=/tmp/\${JOB_ID}.log\""`
+5. Kick off detached (`message` maps to `sequence message`): `ssh artemis@203.0.113.5 "JOB_ID='tpp-message-1712345678'; setsid bash -c '/home/deploy/tpp/current/tpp sequence message; echo \$? > /tmp/\${JOB_ID}.exit' > /tmp/\${JOB_ID}.log 2>&1 < /dev/null & echo \$! > /tmp/\${JOB_ID}.pid; echo \"JOB_ID=\$JOB_ID PID=\$(cat /tmp/\${JOB_ID}.pid) LOG=/tmp/\${JOB_ID}.log\""`
 6. Append the job to `tpp-jobs.json`.
 7. `mcp__nanoclaw__schedule_task` a "Check TPP job tpp-message-1712345678" task for `<now + 5m>`, isolated mode.
 8. Reply: "Started `message` on martis (job `tpp-message-1712345678`, PID 12345). I'll check back in 5 minutes."
