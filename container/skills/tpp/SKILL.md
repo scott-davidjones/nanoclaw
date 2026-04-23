@@ -131,7 +131,7 @@ TPP commands can take **longer than the 30-minute container timeout**, so you mu
 
 1. Kick the command off **detached** on the remote (`setsid`, log to file, capture PID, return immediately).
 2. Record the job in a local registry file.
-3. Schedule a one-off check via `schedule_task` a few minutes out.
+3. Schedule a one-off check via `mcp__nanoclaw__schedule_task` a few minutes out.
 4. Let the container exit normally.
 5. The scheduled check task spawns a fresh container later to inspect the job and either report the result or reschedule.
 
@@ -194,7 +194,24 @@ If the file doesn't exist, create it with `{"jobs": []}` first. Use `jq` to appe
 
 ### 3. Schedule the first status check
 
-Use the `schedule_task` MCP tool with:
+> **MUST: use `mcp__nanoclaw__schedule_task` for the follow-up check.**
+> **MUST NOT: use `CronCreate` or any other built-in scheduling tool.**
+>
+> `mcp__nanoclaw__schedule_task` (NanoClaw's own MCP tool) persists the
+> task to NanoClaw's scheduler, which spawns a fresh container at the
+> scheduled time and re-enters the tpp skill to inspect the job.
+>
+> `CronCreate` is an SDK-bundled session-only scheduler. It does not
+> persist beyond this container's lifetime, does not spawn a new
+> container, and the scheduled prompt will silently never run. Using it
+> means the TPP job you just kicked off will never be checked, the user
+> will never get a result, and the failure is invisible.
+>
+> Always invoke as `mcp__nanoclaw__schedule_task` — fully qualified.
+> This distinguishes it from any SDK-bundled schedulers you may remember
+> from elsewhere.
+
+Use the **`mcp__nanoclaw__schedule_task`** MCP tool with:
 
 - `prompt`: `"Check TPP job <jobId>. Use the tpp skill's 'Checking job status' flow — read /workspace/extra/persist/tpp-jobs.json, SSH to the server, and report or reschedule."`
 - `schedule_type`: `"once"`
@@ -278,7 +295,7 @@ User: "can you run the message command on martis"
 4. Write the martis entry into `servers.json`.
 5. Kick off detached (`message` maps to `sequence message`): `ssh artemis@203.0.113.5 "JOB_ID='tpp-message-1712345678'; setsid bash -l -c 'cd /home/deploy/tpp/current && poetry run python -m tpp.main sequence message; echo \$? > /tmp/\${JOB_ID}.exit' > /tmp/\${JOB_ID}.log 2>&1 < /dev/null & echo \$! > /tmp/\${JOB_ID}.pid; echo \"JOB_ID=\$JOB_ID PID=\$(cat /tmp/\${JOB_ID}.pid) LOG=/tmp/\${JOB_ID}.log\""`
 6. Append the job to `tpp-jobs.json`.
-7. `schedule_task` a "Check TPP job tpp-message-1712345678" task for `<now + 5m>`, isolated mode.
+7. `mcp__nanoclaw__schedule_task` a "Check TPP job tpp-message-1712345678" task for `<now + 5m>`, isolated mode.
 8. Reply: "Started `message` on martis (job `tpp-message-1712345678`, PID 12345). I'll check back in 5 minutes."
 9. 5 minutes later, the scheduled check task runs: SSH, job state is `RUNNING`, `checkCount` → 1, reschedule another 5-minute check.
 10. 10 minutes later, job state is `DONE`, `EXIT=0`, no traceback → `send_message` to the original chat: "Finished `message` on martis. Completed cleanly. `Processed 42 messages in 8m 23s.`" Remove from `tpp-jobs.json`.
