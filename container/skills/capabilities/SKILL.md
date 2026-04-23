@@ -43,15 +43,17 @@ Read the allowed tools from your SDK configuration. You always have access to:
 
 ### 3. MCP server tools
 
-The NanoClaw MCP server exposes these tools (via `mcp__nanoclaw__*` prefix):
-- `send_message` — send a message to the user/group
-- `schedule_task` — schedule a recurring or one-time task
-- `list_tasks` — list scheduled tasks
-- `pause_task` — pause a scheduled task
-- `resume_task` — resume a paused task
-- `cancel_task` — cancel and delete a task
-- `update_task` — update an existing task
-- `register_group` — register a new chat/group (main only)
+The NanoClaw MCP server exposes these tools. Always invoke them
+fully qualified (`mcp__nanoclaw__<name>`) — bare names risk being
+substituted for similarly-named SDK built-ins:
+- `mcp__nanoclaw__send_message` — send a message to the user/group
+- `mcp__nanoclaw__schedule_task` — schedule a recurring or one-time task
+- `mcp__nanoclaw__list_tasks` — list scheduled tasks
+- `mcp__nanoclaw__pause_task` — pause a scheduled task
+- `mcp__nanoclaw__resume_task` — resume a paused task
+- `mcp__nanoclaw__cancel_task` — cancel and delete a task
+- `mcp__nanoclaw__update_task` — update an existing task
+- `mcp__nanoclaw__register_group` — register a new chat/group (main only)
 
 ### 4. Container skills (Bash tools)
 
@@ -84,7 +86,7 @@ Present the report as a clean, readable message. Example:
 • Core: Bash, Read, Write, Edit, Glob, Grep
 • Web: WebSearch, WebFetch
 • Orchestration: Task, TeamCreate, SendMessage
-• MCP: send_message, schedule_task, list_tasks, pause/resume/cancel/update_task, register_group
+• MCP: mcp__nanoclaw__{send_message, schedule_task, list_tasks, pause/resume/cancel/update_task, register_group}
 
 *Container Tools:*
 • agent-browser: ✓
