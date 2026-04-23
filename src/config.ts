@@ -77,6 +77,15 @@ export const AUTO_COMPACT_WINDOW = parseInt(
   process.env.NANOCLAW_AUTO_COMPACT_WINDOW || '60000',
   10,
 );
+// Per-turn tool-call ceiling enforced by the agent-runner. If an agent emits
+// this many tool_use blocks in a single turn, the runner throws and the
+// container exits with an error — the host's existing error-notification
+// path surfaces "got stuck in a loop" to the user. Separate from auto-compact
+// (which is token-based and did not stop the 2026-04-23 incident).
+export const MAX_TOOL_CALLS_PER_TURN = parseInt(
+  process.env.NANOCLAW_MAX_TOOL_CALLS_PER_TURN || '40',
+  10,
+);
 export const ANTHROPIC_BASE_URL =
   process.env.ANTHROPIC_BASE_URL || envConfig.ANTHROPIC_BASE_URL;
 // Opt-in dump of full SDK BetaMessage JSON per assistant turn (agent-runner

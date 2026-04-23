@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractAssistantText,
   extractThinkingText,
+  extractToolUses,
   isEmptyAssistantResponse,
   summariseContent,
 } from '../container/agent-runner/src/content-blocks.js';
@@ -194,5 +195,79 @@ describe('summariseContent', () => {
       types: ['thinking', 'text', 'tool_use', 'text'],
       textLength: 10,
     });
+  });
+});
+
+describe('extractToolUses', () => {
+  it('returns empty array for non-array input', () => {
+    expect(extractToolUses(undefined)).toEqual([]);
+    expect(extractToolUses(null)).toEqual([]);
+  });
+
+  it('returns empty array when no tool_use blocks present', () => {
+    expect(
+      extractToolUses([
+        { type: 'thinking', text: 'reasoning...' },
+        { type: 'text', text: 'response' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('extracts name + input from every tool_use block, in order', () => {
+    expect(
+      extractToolUses([
+        { type: 'tool_use', name: 'Bash', input: { command: 'ls' } },
+        { type: 'text', text: 'ok' },
+        {
+          type: 'tool_use',
+          name: 'Read',
+          input: { file_path: '/etc/hosts' },
+        },
+      ]),
+    ).toEqual([
+      { name: 'Bash', input: { command: 'ls' } },
+      { name: 'Read', input: { file_path: '/etc/hosts' } },
+    ]);
+  });
+
+  it('ignores tool_use blocks without a name string', () => {
+    // defensive — SDK should always populate name, but don't crash if not
+    expect(
+      extractToolUses([
+        { type: 'tool_use', input: { command: 'ls' } },
+        { type: 'tool_use', name: 'Bash', input: { command: 'ls' } },
+      ]),
+    ).toEqual([{ name: 'Bash', input: { command: 'ls' } }]);
+  });
+
+  it('supports counting tool calls across successive assistant turns (loop-guard scenario)', () => {
+    // Simulate what the loop-break guard does: walk multiple assistant
+    // messages and accumulate a per-turn count.
+    const turn1 = extractToolUses([
+      { type: 'tool_use', name: 'Bash', input: { command: 'ls' } },
+    ]);
+    const turn2 = extractToolUses([
+      { type: 'tool_use', name: 'Bash', input: { command: 'cat /tmp/x' } },
+      { type: 'tool_use', name: 'Bash', input: { command: 'ssh host' } },
+    ]);
+    const turn3 = extractToolUses([
+      { type: 'thinking', text: 'retry...' },
+      { type: 'tool_use', name: 'Bash', input: { command: 'sudo chmod' } },
+    ]);
+    expect(turn1.length + turn2.length + turn3.length).toBe(4);
+  });
+
+  it('preserves a rolling buffer of the most recent 10 calls', () => {
+    // Matches the loop-break guard's `recentToolCalls` behaviour: cap at 10,
+    // keep most recent. Validates just the array semantics — the guard
+    // itself uses Array.shift() after length > 10.
+    const buf: Array<{ name: string; input: string }> = [];
+    for (let i = 0; i < 15; i++) {
+      buf.push({ name: 'Bash', input: `call-${i}` });
+      if (buf.length > 10) buf.shift();
+    }
+    expect(buf.length).toBe(10);
+    expect(buf[0].input).toBe('call-5');
+    expect(buf[9].input).toBe('call-14');
   });
 });

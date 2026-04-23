@@ -17,6 +17,32 @@ export interface ContentBlock {
   type: string;
   text?: string;
   thinking?: string;
+  name?: string;
+  input?: unknown;
+}
+
+export interface ToolUseBlock {
+  name: string;
+  input: unknown;
+}
+
+/**
+ * Extract tool_use blocks from an assistant content array. Used by the
+ * loop-break guard (count + rolling diagnostic buffer) and by the skill
+ * constraint enforcement (eager Skill-tool detection so activeSkillName is
+ * set before the SDK's PreToolUse hook fires).
+ */
+export function extractToolUses(
+  content: ContentBlock[] | undefined | null,
+): ToolUseBlock[] {
+  if (!Array.isArray(content)) return [];
+  const out: ToolUseBlock[] = [];
+  for (const block of content) {
+    if (block && block.type === 'tool_use' && typeof block.name === 'string') {
+      out.push({ name: block.name, input: block.input });
+    }
+  }
+  return out;
 }
 
 export function extractAssistantText(
