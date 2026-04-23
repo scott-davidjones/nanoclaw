@@ -1,6 +1,13 @@
 ---
 name: tpp
 description: Run TPP management commands (connect, message, response) on a remote server via SSH. Triggers on phrases like "run the <command> command on <server>", "can you run <command> on <server>", or "<command> on <server>" where <command> is one of connect/message/response. Resolves the server from a cached registry or via DigitalOcean lookup, picks a working SSH key, runs the command, and reports success or failure (non-zero exit or Python traceback).
+deniedCommands:
+  # No sudo from inside this skill. The skill body explicitly forbids
+  # escalation when crossing user boundaries on the remote (see the
+  # "Cross-user directory access" note). Boundary uses negated word/hyphen
+  # so quoted/parenthesised forms like `ssh h "sudo X"` and `(sudo X)` are
+  # caught, while `sudoers` / `my-sudo-tool` are not.
+  - '(?:^|[^\w-])sudo(?![\w-])'
 ---
 
 # TPP Server Commands
