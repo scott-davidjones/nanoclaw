@@ -574,6 +574,33 @@ async function runQuery(
         'mcp__memory__*',
         'mcp__qmd__*',
       ],
+      // Block session-only / unreachable SDK built-ins so they never reach
+      // the model's tool list. The SDK injects them by default; without an
+      // explicit deny they show up in the system prompt and the model can
+      // pick them — see the Gemma/CronCreate incident where TPP's
+      // schedule_task was substituted with the in-session-only CronCreate
+      // and the follow-up check silently never fired.
+      //
+      // Cron*: SDK's session-scoped scheduler. Doesn't survive container
+      //   exit and isn't backed by NanoClaw's task scheduler. Use
+      //   mcp__nanoclaw__schedule_task instead.
+      // EnterWorktree / ExitWorktree: SDK feature for opening parallel git
+      //   worktrees in the host's terminal — meaningless inside a single
+      //   short-lived container.
+      // RemoteTrigger: calls the claude.ai CCR API and requires a
+      //   claude.ai OAuth token, which containers don't have (auth runs
+      //   through OneCLI → LiteLLM with placeholder ANTHROPIC_API_KEY).
+      //   Unreachable from this environment.
+      // EnterPlanMode / ExitPlanMode kept allowed — legitimate
+      //   orchestration capability.
+      disallowedTools: [
+        'CronCreate',
+        'CronList',
+        'CronDelete',
+        'EnterWorktree',
+        'ExitWorktree',
+        'RemoteTrigger',
+      ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
