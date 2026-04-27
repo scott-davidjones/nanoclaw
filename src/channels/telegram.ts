@@ -3,11 +3,7 @@ import https from 'https';
 import path from 'path';
 import { Api, Bot } from 'grammy';
 
-import {
-  ASSISTANT_NAME,
-  GROUPS_DIR,
-  TRIGGER_PATTERN,
-} from '../config.js';
+import { ASSISTANT_NAME, GROUPS_DIR, TRIGGER_PATTERN } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { processImage } from '../image.js';
 import { logger } from '../logger.js';
@@ -93,8 +89,15 @@ async function fetchTelegramAttachment(opts: {
   filename: string;
   bytes: number;
 } | null> {
-  const { api, botToken, fileId, fileSize, preferredName, fallbackExt, groupDir } =
-    opts;
+  const {
+    api,
+    botToken,
+    fileId,
+    fileSize,
+    preferredName,
+    fallbackExt,
+    groupDir,
+  } = opts;
   if (fileSize !== undefined && fileSize > TG_GETFILE_MAX_BYTES) return null;
   const file = await api.getFile(fileId);
   if (!file.file_path) return null;
@@ -377,10 +380,7 @@ export class TelegramChannel implements Channel {
     };
 
     // Common helper to deliver an attachment-derived message.
-    const deliverAttachment = (
-      ctx: any,
-      content: string,
-    ): void => {
+    const deliverAttachment = (ctx: any, content: string): void => {
       const chatJid = `tg:${ctx.chat.id}`;
       const timestamp = new Date(ctx.message.date * 1000).toISOString();
       const senderName =

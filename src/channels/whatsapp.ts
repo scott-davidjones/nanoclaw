@@ -388,7 +388,9 @@ export class WhatsAppChannel implements Channel {
     try {
       const pn = await (
         this.sock.signalRepository as unknown as {
-          lidMapping?: { getPNForLID(jid: string): Promise<string | undefined> };
+          lidMapping?: {
+            getPNForLID(jid: string): Promise<string | undefined>;
+          };
         }
       )?.lidMapping?.getPNForLID(jid);
       if (pn) {
