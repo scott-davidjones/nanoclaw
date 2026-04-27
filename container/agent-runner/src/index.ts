@@ -68,7 +68,7 @@ interface TextContentBlock {
   type: 'text';
   text: string;
 }
-type ContentBlock = ImageContentBlock | TextContentBlock;
+type UserContentBlock = ImageContentBlock | TextContentBlock;
 
 interface ContainerOutput {
   status: 'success' | 'error';
@@ -91,7 +91,7 @@ interface SessionsIndex {
 
 interface SDKUserMessage {
   type: 'user';
-  message: { role: 'user'; content: string | ContentBlock[] };
+  message: { role: 'user'; content: string | UserContentBlock[] };
   parent_tool_use_id: null;
   session_id: string;
 }
@@ -119,7 +119,7 @@ class MessageStream {
     this.waiting?.();
   }
 
-  pushMultimodal(content: ContentBlock[]): void {
+  pushMultimodal(content: UserContentBlock[]): void {
     this.queue.push({
       type: 'user',
       message: { role: 'user', content },
@@ -485,7 +485,7 @@ async function runQuery(
 
   // Load image attachments and send as multimodal content blocks
   if (containerInput.imageAttachments?.length) {
-    const blocks: ContentBlock[] = [];
+    const blocks: UserContentBlock[] = [];
     for (const img of containerInput.imageAttachments) {
       const imgPath = path.join('/workspace/group', img.relativePath);
       try {
