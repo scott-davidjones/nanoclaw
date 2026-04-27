@@ -76,10 +76,10 @@ export class WhatsAppChannel implements Channel {
       version,
       auth: {
         creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, logger),
+        keys: makeCacheableSignalKeyStore(state.keys, logger as never),
       },
       printQRInTerminal: false,
-      logger,
+      logger: logger as never,
       browser: Browsers.macOS('Chrome'),
     });
 
@@ -221,7 +221,7 @@ export class WhatsAppChannel implements Channel {
                 fs.mkdirSync(attachDir, { recursive: true });
                 const filename = path.basename(
                   normalized.documentMessage.fileName ||
-                  `doc-${Date.now()}.pdf`,
+                    `doc-${Date.now()}.pdf`,
                 );
                 const filePath = path.join(attachDir, filename);
                 fs.writeFileSync(filePath, buffer as Buffer);
@@ -386,7 +386,11 @@ export class WhatsAppChannel implements Channel {
 
     // Query Baileys' signal repository for the mapping
     try {
-      const pn = await this.sock.signalRepository?.lidMapping?.getPNForLID(jid);
+      const pn = await (
+        this.sock.signalRepository as unknown as {
+          lidMapping?: { getPNForLID(jid: string): Promise<string | undefined> };
+        }
+      )?.lidMapping?.getPNForLID(jid);
       if (pn) {
         const phoneJid = `${pn.split('@')[0].split(':')[0]}@s.whatsapp.net`;
         this.lidToPhoneMap[lidUser] = phoneJid;

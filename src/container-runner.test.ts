@@ -9,6 +9,7 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 // Mock config
 vi.mock('./config.js', () => ({
   ANTHROPIC_BASE_URL: undefined,
+  AUTO_COMPACT_WINDOW: 60000,
   CONTAINER_IMAGE: 'nanoclaw-agent:latest',
   CONTAINER_MAX_OUTPUT_SIZE: 10485760,
   CONTAINER_TIMEOUT: 1800000, // 30min
@@ -16,6 +17,7 @@ vi.mock('./config.js', () => ({
   GROUPS_DIR: '/tmp/nanoclaw-test-groups',
   IDLE_TIMEOUT: 1800000, // 30min
   LOG_RAW_LLM_RESPONSES: false,
+  MAX_TOOL_CALLS_PER_TURN: 20,
   MCP_MEMORY_URL: '',
   OLLAMA_ADMIN_TOOLS: false,
   ONECLI_API_KEY: '',
