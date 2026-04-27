@@ -284,7 +284,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   saveState();
 
   logger.info(
-    { group: group.name, messageCount: missedMessages.length },
+    {
+      group: group.name,
+      messageCount: missedMessages.length,
+      imageAttachments: imageAttachments.length,
+    },
     'Processing messages',
   );
 
@@ -336,7 +340,11 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             ? result.result
             : JSON.stringify(result.result);
 
-        // Detect API 500 errors surfaced as agent output — suppress and retry
+        // Detect API 500 errors surfaced as agent output — suppress and retry.
+        // Also tell the container to wind down: this code path bails before the
+        // status==='success' branch that would call queue.notifyIdle, so without
+        // an explicit close the agent-runner stays in waitForIpcMessage() forever
+        // and the orchestrator hangs waiting for stdout EOF.
         if (
           /API Error: 5\d{2}\b/.test(raw) ||
           /"type":\s*"api_error"/.test(raw)
@@ -346,6 +354,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
             'Agent output contains API server error, treating as retryable failure',
           );
           hadError = true;
+          queue.closeStdin(chatJid);
           return;
         }
 

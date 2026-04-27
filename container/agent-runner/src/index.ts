@@ -485,6 +485,9 @@ async function runQuery(
 
   // Load image attachments and send as multimodal content blocks
   if (containerInput.imageAttachments?.length) {
+    log(
+      `Loading ${containerInput.imageAttachments.length} image attachment(s) for multimodal turn`,
+    );
     const blocks: UserContentBlock[] = [];
     for (const img of containerInput.imageAttachments) {
       const imgPath = path.join('/workspace/group', img.relativePath);
@@ -498,12 +501,14 @@ async function runQuery(
             data,
           },
         });
+        log(`Loaded image ${img.relativePath} (${data.length} base64 chars)`);
       } catch (err) {
         log(`Failed to load image: ${imgPath}`);
       }
     }
     if (blocks.length > 0) {
       stream.pushMultimodal(blocks);
+      log(`Pushed ${blocks.length} image block(s) as multimodal user message`);
     }
   }
 

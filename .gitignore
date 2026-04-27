@@ -39,3 +39,4 @@ groups/global/*
 .nanoclaw/
 
 agents-sdk-docs
+.claude/scheduled_tasks.lock
