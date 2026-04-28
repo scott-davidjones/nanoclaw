@@ -56,6 +56,30 @@ RUN for ver in $PHP_VERSIONS; do \
 RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
 # ──────────────────────────────────────────────
+# CLI tools: gh (GitHub), doctl (DigitalOcean), jq
+# Auth is injected by OneCLI gateway via HTTPS_PROXY;
+# the *_TOKEN env vars below are placeholders that
+# satisfy the CLIs' bootstrap checks.
+# ──────────────────────────────────────────────
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      | gpg --dearmor -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh jq \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ARCH=$(dpkg --print-architecture) \
+    && DOCTL_VERSION=$(curl -fsSL https://api.github.com/repos/digitalocean/doctl/releases/latest \
+         | grep '"tag_name"' | head -n1 | cut -d '"' -f 4 | sed 's/^v//') \
+    && curl -fsSL "https://github.com/digitalocean/doctl/releases/download/v${DOCTL_VERSION}/doctl-${DOCTL_VERSION}-linux-${ARCH}.tar.gz" \
+       | tar -xz -C /usr/local/bin doctl \
+    && chmod +x /usr/local/bin/doctl
+
+ENV GH_TOKEN=onecli-managed \
+    DIGITALOCEAN_ACCESS_TOKEN=onecli-managed
+
+# ──────────────────────────────────────────────
 # Node: Install LTS versions via nvm
 # (base image provides Node 22, add 18 and 20)
 # ──────────────────────────────────────────────
