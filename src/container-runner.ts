@@ -279,9 +279,9 @@ function buildVolumeMounts(
   // mount.
   const skillsDst = path.join(groupSessionsDir, 'skills');
   const legacySkillsSrc = path.join(process.cwd(), 'container', 'skills');
-  const brainRoot = process.env.BRAIN_ROOT;
-  const brainSkillsSrc = brainRoot
-    ? path.join(brainRoot, 'standards', 'skills')
+  const brainRootForSkills = process.env.BRAIN_ROOT;
+  const brainSkillsSrc = brainRootForSkills
+    ? path.join(brainRootForSkills, 'standards', 'skills')
     : null;
   // Apply legacy first so brain wins on collision.
   for (const src of [legacySkillsSrc, brainSkillsSrc]) {
