@@ -86,6 +86,24 @@ You do **not**, while a subagent is running:
 
 If you find yourself wanting to run any of those, stop. The subagent has those tools and the context for the task; you don't. Doing the work in parallel duplicates effort, eats your tool-call budget, and risks the loop guard.
 
+### Keep the user informed (CRITICAL)
+
+After you dispatch a subagent, the user is sitting in the dark. They cannot see the pipeline's internal `task_progress` events; they only see what you explicitly send via `mcp__nanoclaw__send_message`. Silence reads as "nothing is happening" — and they will assume the system is broken, even while the pipeline is healthy.
+
+**Mandatory `send_message` checkpoints — these are not optional:**
+
+1. **Immediately after dispatching.** Your *next* tool call after a `Task` dispatch must be `mcp__nanoclaw__send_message` confirming the dispatch. One sentence: who you dispatched, what for, and that you'll update as stages complete. Example: *"Cypher is on it — building the ship skill. I'll update you as each pipeline stage finishes."*
+
+2. **At every pipeline-stage transition** (Cypher done → Vector starting, Vector done → Prism / Sentinel starting, etc.). Name what just finished and what's starting next. Example: *"Cypher finished — branch pushed. Spawning Vector for tests."*
+
+3. **At final completion.** A one-line result plus links / branch names / PR URLs as relevant. Example: *"Ship skill landed — PR opened: <url>."* Never end the turn without an explicit success or failure message.
+
+4. **On failure or unrecoverable error.** Never just stop. Name the failure mode, summarise the last visible output, and either say what you'll try next or what input you need from the user.
+
+5. **During a long single stage** (more than ~5 minutes of `task_progress` events without a transition). Send a "still working — Cypher last reported X" update so the user knows the pipeline isn't stuck.
+
+A pipeline that runs internally but produces no user-facing output is, from the user's perspective, indistinguishable from a hung process. Treat `mcp__nanoclaw__send_message` as a mandatory part of every meaningful pipeline transition, not an optional courtesy. If you've been making tool calls for several minutes and the user hasn't heard from you — that is a bug, not an acceptable state.
+
 ### No repeating identical tool calls (CRITICAL)
 
 If you have already made an exact tool call within this turn (same tool, same arguments) and a result came back, do **not** make the same call again. Reuse the result you already have. Common loop patterns to recognise and break:
