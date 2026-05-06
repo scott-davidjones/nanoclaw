@@ -933,6 +933,22 @@ async function main(): Promise<void> {
         writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
       }
     },
+    dispatchDeps: {
+      // Brain repo agents directory on the host (not container path).
+      // Used by dispatch-runner to read persona frontmatter and resolve
+      // the model alias before spawning the subagent container.
+      brainAgentsHostDir: process.env.BRAIN_ROOT
+        ? `${process.env.BRAIN_ROOT}/standards/agents`
+        : '/home/scott/artemis/brain/standards/agents',
+      resolveGroup: (folder: string) => {
+        for (const group of Object.values(registeredGroups)) {
+          if (group.folder === folder) return group;
+        }
+        return null;
+      },
+      pipeFollowUp: (groupJid: string, text: string) =>
+        queue.sendMessage(groupJid, text),
+    },
   });
   startSessionCleanup();
   queue.setProcessMessagesFn(processGroupMessages);

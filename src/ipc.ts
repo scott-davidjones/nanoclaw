@@ -7,6 +7,7 @@ import { DATA_DIR, IPC_POLL_INTERVAL, TIMEZONE } from './config.js';
 import { sendPoolMessage } from './channels/telegram.js';
 import { AvailableGroup } from './container-runner.js';
 import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
+import { processDispatchIpc, type DispatchDeps } from './dispatch-runner.js';
 import { isValidGroupFolder } from './group-folder.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
@@ -24,6 +25,8 @@ export interface IpcDeps {
     registeredJids: Set<string>,
   ) => void;
   onTasksChanged: () => void;
+  /** Dependencies for the dispatch sub-runner (subagent dispatch via MCP tools). */
+  dispatchDeps: DispatchDeps;
 }
 
 let ipcWatcherRunning = false;
@@ -134,6 +137,100 @@ export function startIpcWatcher(deps: IpcDeps): void {
         logger.error(
           { err, sourceGroup },
           'Error reading IPC messages directory',
+        );
+      }
+
+      // Process subagent dispatches from this group's IPC directory.
+      // The agent-runner side `dispatch_*` MCP tools write JSON files
+      // here; we hand each one to dispatch-runner which spawns the
+      // subagent container, captures the result, and (for pipeline=true)
+      // notifies the originating orchestrator. Dispatches are processed
+      // concurrently — one stuck subagent doesn't block other dispatches
+      // or other groups' message processing.
+      const dispatchesDir = path.join(ipcBaseDir, sourceGroup, 'dispatches');
+      try {
+        if (fs.existsSync(dispatchesDir)) {
+          const dispatchFiles = fs
+            .readdirSync(dispatchesDir)
+            .filter((f) => f.endsWith('.json'));
+          for (const file of dispatchFiles) {
+            const filePath = path.join(dispatchesDir, file);
+            // Move into in-flight/ before processing so re-scans of the
+            // dispatches dir don't double-fire the same task. Process
+            // asynchronously — dispatches can take minutes; we do not
+            // await here so the IPC loop stays responsive to other groups.
+            const inflightDir = path.join(
+              ipcBaseDir,
+              sourceGroup,
+              'dispatches',
+              '.in-flight',
+            );
+            try {
+              fs.mkdirSync(inflightDir, { recursive: true });
+              const inflightPath = path.join(inflightDir, file);
+              fs.renameSync(filePath, inflightPath);
+
+              void (async () => {
+                try {
+                  const data = JSON.parse(
+                    fs.readFileSync(inflightPath, 'utf-8'),
+                  );
+                  const result = await processDispatchIpc(
+                    data,
+                    deps.dispatchDeps,
+                  );
+                  logger.info(
+                    {
+                      dispatch_id: result.dispatch_id,
+                      agent: result.agent,
+                      status: result.status,
+                      durationMs: result.durationMs,
+                    },
+                    'Dispatch completed',
+                  );
+                  // On completion, archive the in-flight file with its
+                  // result for debugging. Use the dispatches/.completed/
+                  // dir so live re-scans never see it.
+                  const completedDir = path.join(
+                    ipcBaseDir,
+                    sourceGroup,
+                    'dispatches',
+                    '.completed',
+                  );
+                  fs.mkdirSync(completedDir, { recursive: true });
+                  fs.renameSync(
+                    inflightPath,
+                    path.join(completedDir, file),
+                  );
+                } catch (err) {
+                  logger.error(
+                    { file, sourceGroup, err },
+                    'Error processing IPC dispatch',
+                  );
+                  const errorDir = path.join(ipcBaseDir, 'errors');
+                  fs.mkdirSync(errorDir, { recursive: true });
+                  try {
+                    fs.renameSync(
+                      inflightPath,
+                      path.join(errorDir, `dispatch-${sourceGroup}-${file}`),
+                    );
+                  } catch {
+                    // ignore — file may already be gone
+                  }
+                }
+              })();
+            } catch (err) {
+              logger.error(
+                { file, sourceGroup, err },
+                'Failed to move dispatch into in-flight',
+              );
+            }
+          }
+        }
+      } catch (err) {
+        logger.error(
+          { err, sourceGroup },
+          'Error reading IPC dispatches directory',
         );
       }
 

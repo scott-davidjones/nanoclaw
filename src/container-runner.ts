@@ -341,6 +341,7 @@ async function buildContainerArgs(
   containerName: string,
   agentIdentifier?: string,
   model?: string,
+  extraEnv?: Record<string, string>,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
@@ -436,6 +437,16 @@ async function buildContainerArgs(
       args.push(...readonlyMountArgs(mount.hostPath, mount.containerPath));
     } else {
       args.push('-v', `${mount.hostPath}:${mount.containerPath}`);
+    }
+  }
+
+  // Caller-supplied env overrides — used by the dispatch runner to set
+  // NANOCLAW_SUBAGENT_NAME for spawned subagent containers, and to override
+  // ANTHROPIC_MODEL with the value parsed from the subagent's frontmatter.
+  // Pushed AFTER all built-in env so the caller's values win on collision.
+  if (extraEnv) {
+    for (const [key, value] of Object.entries(extraEnv)) {
+      args.push('-e', `${key}=${value}`);
     }
   }
 
@@ -851,6 +862,182 @@ export async function runContainerAgent(
         status: 'error',
         result: null,
         error: `Container spawn error: ${err.message}`,
+      });
+    });
+  });
+}
+
+/**
+ * One-shot container spawn for a dispatched subagent (Cypher / Vector /
+ * Prism / Sentinel / Triage). Reuses the same volume mounts as the parent
+ * group so the subagent sees the same project, group, brain, ipc, etc.
+ * Env-flagged via NANOCLAW_SUBAGENT_NAME so the agent-runner's persona-load
+ * branch knows to read the right .md from $BRAIN_AGENTS_DIR.
+ *
+ * Differences from runContainerAgent:
+ * - No idle/follow-up loop — this is single-shot. stdin closes immediately.
+ * - No onProcess callback / queue integration — the dispatch runner owns
+ *   lifecycle.
+ * - Returns just the final result text, not the full ContainerOutput shape.
+ *
+ * Note: subagent's `mcp__nanoclaw__send_message` calls route to the same
+ * chatJid as the parent group (NANOCLAW_CHAT_JID is inherited via the
+ * container env), so users see Cypher's progress in real time without
+ * the orchestrator having to relay.
+ */
+export async function runSubagentContainer(opts: {
+  group: RegisteredGroup;
+  /** Chat JID of the originating conversation. Inherited as
+   * NANOCLAW_CHAT_JID in the subagent container so its
+   * `mcp__nanoclaw__send_message` calls route to the same user/group. */
+  chatJid: string;
+  subagentName: string;
+  model: string;
+  prompt: string;
+  dispatchId: string;
+}): Promise<ContainerOutput> {
+  const { group, chatJid, subagentName, model, prompt, dispatchId } = opts;
+
+  const groupDir = resolveGroupFolderPath(group.folder);
+  fs.mkdirSync(groupDir, { recursive: true });
+
+  const mounts = buildVolumeMounts(group, false);
+  const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
+  const containerName = `nanoclaw-${safeName}-sub-${subagentName}-${Date.now()}`;
+  const agentIdentifier = `subagent-${subagentName}`;
+
+  const containerArgs = await buildContainerArgs(
+    mounts,
+    containerName,
+    agentIdentifier,
+    model,
+    {
+      NANOCLAW_SUBAGENT_NAME: subagentName,
+      NANOCLAW_DISPATCH_ID: dispatchId,
+    },
+  );
+
+  logger.info(
+    {
+      group: group.name,
+      containerName,
+      subagentName,
+      model,
+      dispatchId,
+    },
+    'Spawning subagent container',
+  );
+
+  const input: ContainerInput = {
+    prompt,
+    groupFolder: group.folder,
+    chatJid,
+    isMain: false,
+    assistantName: subagentName,
+  };
+
+  const startTime = Date.now();
+
+  return new Promise((resolve) => {
+    const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
+
+    container.stdin.write(JSON.stringify(input));
+    container.stdin.end();
+
+    container.stdout.on('data', (chunk: Buffer) => {
+      if (stdout.length > CONTAINER_MAX_OUTPUT_SIZE) {
+        stdoutTruncated = true;
+        return;
+      }
+      stdout += chunk.toString();
+    });
+    container.stderr.on('data', (chunk: Buffer) => {
+      if (stderr.length > CONTAINER_MAX_OUTPUT_SIZE) {
+        stderrTruncated = true;
+        return;
+      }
+      stderr += chunk.toString();
+    });
+
+    container.on('error', (err) => {
+      resolve({
+        status: 'error',
+        result: null,
+        error: `Subagent container spawn error: ${err.message}`,
+      });
+    });
+
+    container.on('close', (code) => {
+      const duration = Date.now() - startTime;
+      // Parse OUTPUT markers from stdout to find the final result. Same
+      // sentinel pattern as runContainerAgent.
+      const startIdx = stdout.lastIndexOf(OUTPUT_START_MARKER);
+      const endIdx = stdout.lastIndexOf(OUTPUT_END_MARKER);
+      let finalResult: string | null = null;
+      let parseError: string | undefined;
+
+      if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+        const jsonStr = stdout
+          .slice(startIdx + OUTPUT_START_MARKER.length, endIdx)
+          .trim();
+        try {
+          const parsed = JSON.parse(jsonStr) as {
+            status?: string;
+            result?: string | null;
+            error?: string;
+          };
+          if (parsed.status === 'success' && typeof parsed.result === 'string') {
+            finalResult = parsed.result;
+          } else if (parsed.error) {
+            parseError = parsed.error;
+          }
+        } catch (err) {
+          parseError = `Failed to parse output JSON: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      } else if (code === 0) {
+        // Container exited successfully but emitted no marker — record but
+        // don't error. Subagent may have done all its work via send_message.
+        finalResult = '';
+      }
+
+      logger.info(
+        {
+          group: group.name,
+          subagentName,
+          dispatchId,
+          containerName,
+          exitCode: code,
+          duration,
+          stdoutBytes: stdout.length,
+          stderrBytes: stderr.length,
+          stdoutTruncated,
+          stderrTruncated,
+          parseError,
+        },
+        'Subagent container exited',
+      );
+
+      if (code !== 0) {
+        resolve({
+          status: 'error',
+          result: null,
+          error:
+            parseError ||
+            `Subagent exited code=${code}. Last stderr: ${stderr.slice(-500)}`,
+        });
+        return;
+      }
+
+      resolve({
+        status: 'success',
+        result: finalResult,
       });
     });
   });

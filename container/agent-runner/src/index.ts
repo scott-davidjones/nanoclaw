@@ -719,30 +719,82 @@ async function runQuery(
       );
     }
   } else {
-    // Sub-agents get the operational rules — dispatch protocol, memory
-    // hygiene, channel formatting, etc. Canonical home is the brain repo
-    // at $BRAIN_AGENTS_DIR/OPERATIONS.md (default
-    // /workspace/brain/standards/agents/OPERATIONS.md). Fall back to the
-    // pre-migration path for backward compat during rollout; the fallback
-    // can be removed once Phase 1.5 deletes the originals from nanoclaw.
     const brainAgentsDir =
       process.env.BRAIN_AGENTS_DIR || '/workspace/brain/standards/agents';
-    const operationsPath = path.join(brainAgentsDir, 'OPERATIONS.md');
-    const legacyOperationsPath = '/workspace/global/CLAUDE.md';
-    if (fs.existsSync(operationsPath)) {
-      systemPromptAppend = fs.readFileSync(operationsPath, 'utf-8');
-      log(
-        `Loaded operations from ${operationsPath} (${systemPromptAppend.length} chars)`,
-      );
-    } else if (fs.existsSync(legacyOperationsPath)) {
-      systemPromptAppend = fs.readFileSync(legacyOperationsPath, 'utf-8');
-      log(
-        `Loaded operations from ${legacyOperationsPath} (legacy path) (${systemPromptAppend.length} chars)`,
-      );
-    } else {
-      log(
-        `Operations file not found at ${operationsPath} or legacy path — sub-agent will use SDK defaults only`,
-      );
+    const subagentName = process.env.NANOCLAW_SUBAGENT_NAME;
+
+    if (subagentName) {
+      // Dispatched subagent (Cypher / Vector / Prism / Sentinel / Triage):
+      // load persona = BASE_SOUL + BASE_AGENTS + <agent>.md (frontmatter
+      // stripped). The model alias was already parsed host-side and is
+      // present in ANTHROPIC_MODEL — the agent-runner doesn't re-resolve it.
+      const fileMap: Record<string, string> = {
+        cypher: 'developer.md',
+        vector: 'tester.md',
+        prism: 'ui-tester.md',
+        sentinel: 'reviewer.md',
+        triage: 'triage.md',
+      };
+      const file = fileMap[subagentName];
+      if (!file) {
+        log(
+          `Unknown NANOCLAW_SUBAGENT_NAME=${subagentName} — falling through to operations path`,
+        );
+      } else {
+        const personaPath = path.join(brainAgentsDir, file);
+        const baseAgentsPath = path.join(brainAgentsDir, 'BASE_AGENTS.md');
+        const baseSoulPath = path.join(brainAgentsDir, 'BASE_SOUL.md');
+        const parts: string[] = [];
+        if (fs.existsSync(baseSoulPath)) {
+          parts.push(fs.readFileSync(baseSoulPath, 'utf-8'));
+        }
+        if (fs.existsSync(baseAgentsPath)) {
+          parts.push(fs.readFileSync(baseAgentsPath, 'utf-8'));
+        }
+        if (fs.existsSync(personaPath)) {
+          const raw = fs.readFileSync(personaPath, 'utf-8');
+          // Strip leading YAML frontmatter (--- ... ---) — the host already
+          // parsed model from it, the body is what the SDK needs.
+          const stripped = raw.replace(/^---\s*\n[\s\S]*?\n---\s*\n?/, '');
+          parts.push(stripped);
+        } else {
+          log(
+            `Subagent persona missing at ${personaPath} — proceeding with BASE files only`,
+          );
+        }
+        if (parts.length > 0) {
+          systemPromptAppend = parts.join('\n\n---\n\n');
+          log(
+            `Loaded subagent persona for "${subagentName}" (${systemPromptAppend.length} chars)`,
+          );
+        }
+      }
+    }
+
+    if (!systemPromptAppend) {
+      // Default sub-channel agents (WhatsApp/Slack/Discord groups not
+      // dispatched as named subagents) get the operational rules — dispatch
+      // protocol, memory hygiene, channel formatting. Canonical home is the
+      // brain repo at $BRAIN_AGENTS_DIR/OPERATIONS.md. Falls back to the
+      // pre-migration nanoclaw path during rollout; remove the fallback
+      // once Phase 1.5 deletes originals from nanoclaw.
+      const operationsPath = path.join(brainAgentsDir, 'OPERATIONS.md');
+      const legacyOperationsPath = '/workspace/global/CLAUDE.md';
+      if (fs.existsSync(operationsPath)) {
+        systemPromptAppend = fs.readFileSync(operationsPath, 'utf-8');
+        log(
+          `Loaded operations from ${operationsPath} (${systemPromptAppend.length} chars)`,
+        );
+      } else if (fs.existsSync(legacyOperationsPath)) {
+        systemPromptAppend = fs.readFileSync(legacyOperationsPath, 'utf-8');
+        log(
+          `Loaded operations from ${legacyOperationsPath} (legacy path) (${systemPromptAppend.length} chars)`,
+        );
+      } else {
+        log(
+          `Operations file not found at ${operationsPath} or legacy path — sub-agent will use SDK defaults only`,
+        );
+      }
     }
   }
 
