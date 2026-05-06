@@ -904,7 +904,18 @@ export async function runSubagentContainer(opts: {
   const mounts = buildVolumeMounts(group, false);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-sub-${subagentName}-${Date.now()}`;
-  const agentIdentifier = `subagent-${subagentName}`;
+  // Subagent inherits the parent group's OneCLI identity. OneCLI agent
+  // identifiers gate credential routing (per-agent secret mode etc.) — a
+  // dispatched subagent runs with the same network credentials the parent
+  // group's orchestrator would use, so it must claim the same identity.
+  // Don't invent `subagent-<name>` here; OneCLI doesn't know it, returns
+  // false from applyContainerConfig, and the container ships with no
+  // auth / proxy / CA — the SDK then errors with "Not logged in".
+  // Mirror runContainerAgent's logic exactly: main → default agent,
+  // others → slugified folder.
+  const agentIdentifier = group.isMain
+    ? undefined
+    : group.folder.toLowerCase().replace(/_/g, '-');
 
   const containerArgs = await buildContainerArgs(
     mounts,
