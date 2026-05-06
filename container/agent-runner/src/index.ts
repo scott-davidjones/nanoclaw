@@ -367,7 +367,10 @@ function createStopHook(isMain: boolean): HookCallback {
   return async (input) => {
     if (!isMain) return {};
     const stopInput = input as StopHookInput;
-    if (stopInput.stop_hook_active) return {};
+    // Note: don't short-circuit on stop_hook_active here — the post-dispatch
+    // text check below needs to run on the second invocation (the one that
+    // fires after the pre-dispatch block has already forced a dispatch).
+    // Per-branch `stop_hook_active` guards are applied where appropriate.
 
     const transcriptPath = stopInput.transcript_path;
     if (!transcriptPath || !fs.existsSync(transcriptPath)) return {};
@@ -437,13 +440,16 @@ function createStopHook(isMain: boolean): HookCallback {
       );
     });
     if (!dispatched) {
+      // Pre-dispatch block. Skip on stop_hook_active to avoid looping if
+      // the model refuses to dispatch even after one nudge.
+      if (stopInput.stop_hook_active) return {};
       log(
         `Stop hook: dev-shaped request with no dispatch — blocking turn end`,
       );
       return {
         decision: 'block' as const,
         reason:
-          'You wrote a response without dispatching a subagent. This request looks like dev work (create a skill, add a feature, fix a bug, refactor, build, implement, promote, port, etc.) and per OPERATIONS.md "Capability Requests" your first action MUST be a dispatch. Call dispatch_cypher (or dispatch_vector / dispatch_prism / dispatch_sentinel / dispatch_triage as appropriate) NOW with the user request verbatim. The legacy Task tool also counts. Do not end this turn until a dispatch tool has been called.',
+          'You wrote a response without dispatching a subagent. This request looks like dev work (create a skill, add a feature, fix a bug, refactor, build, implement, promote, port, etc.) and per OPERATIONS.md "Capability Requests" your first action MUST be a dispatch. Call dispatch_cypher (or dispatch_vector / dispatch_prism / dispatch_sentinel / dispatch_triage as appropriate) NOW with the user request verbatim. The legacy Task tool also counts. After the dispatch tool returns, **do not emit any user-facing text** in your final assistant message — the subagent reports its own result via the swarm channel automatically; any summary you write here is a hallucination because the subagent has not finished yet. Use mcp__nanoclaw__send_message during the turn for any acknowledgment, then end the turn with tool_use only (or nothing).',
       };
     }
 
