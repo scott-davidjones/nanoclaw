@@ -14,6 +14,7 @@ import { CronExpressionParser } from 'cron-parser';
 const IPC_DIR = '/workspace/ipc';
 const MESSAGES_DIR = path.join(IPC_DIR, 'messages');
 const TASKS_DIR = path.join(IPC_DIR, 'tasks');
+const DISPATCHES_DIR = path.join(IPC_DIR, 'dispatches');
 
 // Context from environment variables (set by the agent runner)
 const chatJid = process.env.NANOCLAW_CHAT_JID!;
@@ -501,6 +502,117 @@ Use available_groups.json to find the JID for a group. The folder name must be c
       ],
     };
   },
+);
+
+/**
+ * Subagent dispatch — five named wrappers (one per pipeline role) over a
+ * single shared handler. Each tool has a distinct name so the model picks
+ * the right one by name rather than by parameter value, which Gemma-class
+ * models do far more reliably (the original five-step Task dispatch
+ * protocol with read-three-files-parse-yaml drift was the failure mode
+ * this replaces).
+ *
+ * On invocation we write an IPC dispatch file at
+ * /workspace/ipc/dispatches/<id>.json. The host's IPC watcher picks it up,
+ * reads the agent persona from the brain mount, and spawns a subagent
+ * container with the right model and persona pre-loaded. The subagent
+ * inherits the chat JID so its `mcp__nanoclaw__send_message` calls route
+ * to the same user — progress is visible without orchestrator relay.
+ *
+ * Pipeline=true (orchestrator-driven Cypher → Vector → Sentinel run): on
+ * subagent completion the host sends a [DISPATCH_RESULT] follow-up to the
+ * originating chat so the orchestrator can advance to the next stage.
+ * Default pipeline=false — fire-and-forget.
+ */
+type SubagentName = 'cypher' | 'vector' | 'prism' | 'sentinel' | 'triage';
+
+async function dispatchSubagent(
+  agent: SubagentName,
+  args: {
+    task_description: string;
+    context_files?: string[];
+    pipeline?: boolean;
+  },
+) {
+  const dispatchId = `dispatch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const data = {
+    type: 'dispatch',
+    dispatch_id: dispatchId,
+    agent,
+    task_description: args.task_description,
+    context_files: args.context_files ?? [],
+    pipeline: args.pipeline === true,
+    originating_group: groupFolder,
+    chat_jid: chatJid,
+    timestamp: new Date().toISOString(),
+  };
+  writeIpcFile(DISPATCHES_DIR, data);
+  const tail = data.pipeline
+    ? 'Pipeline mode — you will be woken with the result when they finish so you can advance the next stage.'
+    : 'They will send progress and the final result directly to the user via send_message.';
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: `${agent} dispatched (id=${dispatchId}). ${tail}`,
+      },
+    ],
+  };
+}
+
+const dispatchSchema = {
+  task_description: z
+    .string()
+    .describe(
+      "What the subagent should do, in the user's words plus any context that fixes ambiguity. Pass the full request — the subagent will not see the orchestrator's transcript.",
+    ),
+  context_files: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Optional file paths the subagent should read up-front. Paths must be under /workspace/group, /workspace/brain, /workspace/project, or the brain agents dir; anything else is rejected as path-traversal.',
+    ),
+  pipeline: z
+    .boolean()
+    .optional()
+    .describe(
+      'Set true if this dispatch is part of an explicit pipeline run (Cypher → Vector → Sentinel etc.) and you want to be woken when the subagent completes so you can advance the next stage. Default false: fire-and-forget, the subagent reports directly to the user.',
+    ),
+};
+
+server.tool(
+  'dispatch_cypher',
+  "Dispatch Cypher (full-stack developer) to write code, create branches, open PRs. Use for any request that adds or modifies application code in a repo.",
+  dispatchSchema,
+  async (args) => dispatchSubagent('cypher', args),
+);
+
+server.tool(
+  'dispatch_vector',
+  'Dispatch Vector (quality gate) to run static analysis, Pest, PHPUnit, Vitest, and other tests. Use after Cypher writes code, or to investigate test failures.',
+  dispatchSchema,
+  async (args) => dispatchSubagent('vector', args),
+);
+
+server.tool(
+  'dispatch_prism',
+  'Dispatch Prism (UI tester) for visual and responsive checks via agent-browser. Use only when the change touches a frontend that needs to be exercised in a real browser.',
+  dispatchSchema,
+  async (args) => dispatchSubagent('prism', args),
+);
+
+server.tool(
+  'dispatch_sentinel',
+  'Dispatch Sentinel (code reviewer) for security, quality, and standards review of an existing PR or diff. Use as the final gate before merge.',
+  dispatchSchema,
+  async (args) => dispatchSubagent('sentinel', args),
+);
+
+server.tool(
+  'dispatch_triage',
+  'Dispatch Triage (failure router) to classify a pipeline failure and schedule a surgical Cypher fix. Use when Vector or Sentinel returns failures and you need a structured next-step rather than a re-dispatch with the same prompt.',
+  dispatchSchema,
+  async (args) => dispatchSubagent('triage', args),
 );
 
 // Start the stdio transport

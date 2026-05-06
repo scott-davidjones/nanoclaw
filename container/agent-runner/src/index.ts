@@ -407,7 +407,18 @@ function createStopHook(isMain: boolean): HookCallback {
     if (lastUserIdx === -1) return {};
     if (!isDevRequest(lastUserText)) return {};
 
-    // Find any Task tool_use after the last user message.
+    // Find any dispatch tool_use after the last user message. Either the
+    // SDK's native `Task` tool or one of our `dispatch_*` MCP tools (these
+    // collapse the multi-step Task protocol into a single named call —
+    // see container/agent-runner/src/ipc-mcp-stdio.ts) counts as a valid
+    // dispatch. The MCP tool names arrive prefixed (`mcp__nanoclaw__...`).
+    const isDispatchToolName = (name: string): boolean =>
+      name === 'Task' ||
+      name === 'mcp__nanoclaw__dispatch_cypher' ||
+      name === 'mcp__nanoclaw__dispatch_vector' ||
+      name === 'mcp__nanoclaw__dispatch_prism' ||
+      name === 'mcp__nanoclaw__dispatch_sentinel' ||
+      name === 'mcp__nanoclaw__dispatch_triage';
     const dispatched = entries.slice(lastUserIdx + 1).some((e) => {
       const entry = e as {
         type?: string;
@@ -422,18 +433,18 @@ function createStopHook(isMain: boolean): HookCallback {
           'type' in b &&
           (b as { type: string }).type === 'tool_use' &&
           'name' in b &&
-          (b as { name: string }).name === 'Task',
+          isDispatchToolName((b as { name: string }).name),
       );
     });
     if (dispatched) return {};
 
     log(
-      `Stop hook: dev-shaped request with no Task dispatch — blocking turn end`,
+      `Stop hook: dev-shaped request with no dispatch — blocking turn end`,
     );
     return {
       decision: 'block' as const,
       reason:
-        'You wrote a response without dispatching a subagent. This request looks like dev work (create a skill, add a feature, fix a bug, refactor, build, implement, promote, port, etc.) and per groups/global/CLAUDE.md "Capability Requests" your first action MUST be a Task dispatch to Cypher. Call the Task tool now with the user request verbatim and the appropriate subagent body. Do not end this turn until Task has been called.',
+        'You wrote a response without dispatching a subagent. This request looks like dev work (create a skill, add a feature, fix a bug, refactor, build, implement, promote, port, etc.) and per OPERATIONS.md "Capability Requests" your first action MUST be a dispatch. Call dispatch_cypher (or dispatch_vector / dispatch_prism / dispatch_sentinel / dispatch_triage as appropriate) NOW with the user request verbatim. The legacy Task tool also counts. Do not end this turn until a dispatch tool has been called.',
     };
   };
 }
