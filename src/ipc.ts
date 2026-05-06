@@ -198,10 +198,7 @@ export function startIpcWatcher(deps: IpcDeps): void {
                     '.completed',
                   );
                   fs.mkdirSync(completedDir, { recursive: true });
-                  fs.renameSync(
-                    inflightPath,
-                    path.join(completedDir, file),
-                  );
+                  fs.renameSync(inflightPath, path.join(completedDir, file));
                 } catch (err) {
                   logger.error(
                     { file, sourceGroup, err },

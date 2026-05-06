@@ -94,27 +94,17 @@ describe('validateDispatchTask', () => {
   });
 
   it('rejects unknown agent name', () => {
-    expect(
-      validateDispatchTask({ ...valid, agent: 'mystery' }),
-    ).toBeNull();
+    expect(validateDispatchTask({ ...valid, agent: 'mystery' })).toBeNull();
   });
 
   it('rejects missing required fields', () => {
-    expect(
-      validateDispatchTask({ ...valid, task_description: '' }),
-    ).toBeNull();
-    expect(
-      validateDispatchTask({ ...valid, dispatch_id: '' }),
-    ).toBeNull();
-    expect(
-      validateDispatchTask({ ...valid, chat_jid: '' }),
-    ).toBeNull();
+    expect(validateDispatchTask({ ...valid, task_description: '' })).toBeNull();
+    expect(validateDispatchTask({ ...valid, dispatch_id: '' })).toBeNull();
+    expect(validateDispatchTask({ ...valid, chat_jid: '' })).toBeNull();
   });
 
   it('rejects wrong type', () => {
-    expect(
-      validateDispatchTask({ ...valid, type: 'message' }),
-    ).toBeNull();
+    expect(validateDispatchTask({ ...valid, type: 'message' })).toBeNull();
   });
 
   it('defaults context_files to empty array', () => {
@@ -122,9 +112,9 @@ describe('validateDispatchTask', () => {
   });
 
   it('preserves pipeline=true', () => {
-    expect(
-      validateDispatchTask({ ...valid, pipeline: true })?.pipeline,
-    ).toBe(true);
+    expect(validateDispatchTask({ ...valid, pipeline: true })?.pipeline).toBe(
+      true,
+    );
   });
 
   it('coerces missing pipeline to false', () => {
@@ -166,7 +156,13 @@ describe('readPersonaModel', () => {
     writeAgent('ui-tester.md', 'haiku', 'a');
     writeAgent('reviewer.md', 'opus', 'a');
     writeAgent('triage.md', 'sonnet', 'a');
-    expect(KNOWN_AGENTS).toEqual(['cypher', 'vector', 'prism', 'sentinel', 'triage']);
+    expect(KNOWN_AGENTS).toEqual([
+      'cypher',
+      'vector',
+      'prism',
+      'sentinel',
+      'triage',
+    ]);
     for (const agent of KNOWN_AGENTS) {
       expect('error' in readPersonaModel(tmpDir, agent)).toBe(false);
     }

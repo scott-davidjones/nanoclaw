@@ -993,7 +993,10 @@ export async function runSubagentContainer(opts: {
             result?: string | null;
             error?: string;
           };
-          if (parsed.status === 'success' && typeof parsed.result === 'string') {
+          if (
+            parsed.status === 'success' &&
+            typeof parsed.result === 'string'
+          ) {
             finalResult = parsed.result;
           } else if (parsed.error) {
             parseError = parsed.error;

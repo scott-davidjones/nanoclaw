@@ -51,7 +51,9 @@ const AGENT_PERSONA_FILES: Record<string, string> = {
 
 /** Set of valid agent identifiers — for type-narrowing input validation. */
 export const KNOWN_AGENTS = Object.freeze(
-  Object.keys(AGENT_PERSONA_FILES) as ReadonlyArray<keyof typeof AGENT_PERSONA_FILES>,
+  Object.keys(AGENT_PERSONA_FILES) as ReadonlyArray<
+    keyof typeof AGENT_PERSONA_FILES
+  >,
 );
 
 export interface DispatchTask {
@@ -133,7 +135,8 @@ export function validateDispatchTask(data: unknown): DispatchTask | null {
   if (typeof t.dispatch_id !== 'string' || !t.dispatch_id) return null;
   if (typeof t.agent !== 'string' || !(t.agent in AGENT_PERSONA_FILES))
     return null;
-  if (typeof t.task_description !== 'string' || !t.task_description) return null;
+  if (typeof t.task_description !== 'string' || !t.task_description)
+    return null;
   if (typeof t.originating_group !== 'string' || !t.originating_group)
     return null;
   if (typeof t.chat_jid !== 'string' || !t.chat_jid) return null;
@@ -146,7 +149,8 @@ export function validateDispatchTask(data: unknown): DispatchTask | null {
     pipeline: t.pipeline === true,
     originating_group: t.originating_group,
     chat_jid: t.chat_jid,
-    timestamp: typeof t.timestamp === 'string' ? t.timestamp : new Date().toISOString(),
+    timestamp:
+      typeof t.timestamp === 'string' ? t.timestamp : new Date().toISOString(),
   };
 }
 
@@ -206,11 +210,13 @@ export function buildSubagentPrompt(
       '/workspace/project',
     ];
     const resolved = path.resolve(ref);
-    const allowed = safeRoots.some((root) =>
-      resolved === root || resolved.startsWith(root + path.sep),
+    const allowed = safeRoots.some(
+      (root) => resolved === root || resolved.startsWith(root + path.sep),
     );
     if (!allowed) {
-      blocks.push(`<file path="${ref}" status="skipped" reason="outside-allowed-roots"/>`);
+      blocks.push(
+        `<file path="${ref}" status="skipped" reason="outside-allowed-roots"/>`,
+      );
       continue;
     }
     if (!fs.existsSync(resolved)) {
@@ -248,7 +254,8 @@ export async function processDispatchIpc(
       agent: 'unknown',
       status: 'error',
       result: null,
-      error: 'Invalid dispatch payload — missing required fields or unknown agent',
+      error:
+        'Invalid dispatch payload — missing required fields or unknown agent',
       durationMs: 0,
     };
   }
@@ -256,7 +263,11 @@ export async function processDispatchIpc(
   const personaResult = readPersonaModel(deps.brainAgentsHostDir, task.agent);
   if ('error' in personaResult) {
     logger.error(
-      { dispatch_id: task.dispatch_id, agent: task.agent, error: personaResult.error },
+      {
+        dispatch_id: task.dispatch_id,
+        agent: task.agent,
+        error: personaResult.error,
+      },
       'Dispatch persona resolution failed',
     );
     return {
