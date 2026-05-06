@@ -1092,6 +1092,29 @@ async function runQuery(
   log(
     `Query done. Messages: ${messageCount}, results: ${resultCount}, lastAssistantUuid: ${lastAssistantUuid || 'none'}, closedDuringQuery: ${closedDuringQuery}`,
   );
+
+  // Subagent single-shot fallback: when the SDK iterator ends without
+  // emitting a `result` event (observed for stream.end()-immediately
+  // queries — the SDK skips the result wrap-up in single-user-turn
+  // mode), the OUTPUT marker is never written and runSubagentContainer
+  // can't parse a result. The user then sees the
+  // "<agent> completed without final text" placeholder even though
+  // the assistant did emit a real reply.
+  //
+  // Emit a synthetic OUTPUT block here using the accumulated assistant
+  // text fallback. Only fires when (a) we're a subagent in single-shot
+  // mode AND (b) no result event was processed during the loop.
+  if (subagentSingleShot && resultCount === 0) {
+    log(
+      `Subagent single-shot: no SDK result event — emitting fallback OUTPUT (${assistantTextFallback.length} chars)`,
+    );
+    writeOutput({
+      status: 'success',
+      result: assistantTextFallback || null,
+      newSessionId,
+    });
+  }
+
   return { newSessionId, lastAssistantUuid, closedDuringQuery };
 }
 
