@@ -255,6 +255,95 @@ function createPreToolUseHook(
 }
 
 /**
+ * Forbid dispatched subagents from writing to the ephemeral skill paths
+ * (/home/node/.claude/skills/, /workspace/group/skills/). Those paths
+ * "look like" the right place to land a skill file but they're session-
+ * scoped scratch — anything written there is dropped when the
+ * orchestrator's session rotates. The canonical home for skill files is
+ * brain/standards/skills/, reached via clone-branch-push-PR per the
+ * Repo write workflow section in developer.md.
+ *
+ * Empirically, persona text at the top of developer.md is not enough —
+ * the model's training prior to write skills under .claude/skills/ is
+ * stronger than the persona's instruction. Structural deny is the rail.
+ *
+ * Only active for dispatched subagents (NANOCLAW_SUBAGENT_NAME set).
+ * The orchestrator and sub-channel agents may have legitimate reasons
+ * to read or copy from these paths.
+ */
+const FORBIDDEN_SKILL_WRITE_PREFIXES = [
+  '/home/node/.claude/skills/',
+  '/workspace/group/skills/',
+];
+
+function createSubagentWriteGuardHook(): HookCallback {
+  return async (input) => {
+    const hook = input as PreToolUseHookInput;
+    if (!process.env.NANOCLAW_SUBAGENT_NAME) return {};
+
+    const toolName = hook.tool_name;
+    const toolInput = hook.tool_input as Record<string, unknown>;
+
+    // Edit / Write / MultiEdit / NotebookEdit have a `file_path` arg.
+    if (
+      toolName === 'Edit' ||
+      toolName === 'Write' ||
+      toolName === 'MultiEdit' ||
+      toolName === 'NotebookEdit'
+    ) {
+      const filePath =
+        typeof toolInput?.file_path === 'string' ? toolInput.file_path : '';
+      const blocked = FORBIDDEN_SKILL_WRITE_PREFIXES.some((p) =>
+        filePath.startsWith(p),
+      );
+      if (blocked) {
+        log(
+          `PreToolUse DENY: subagent=${process.env.NANOCLAW_SUBAGENT_NAME} tool=${toolName} file_path=${filePath} — ephemeral skill location, redirecting to brain repo`,
+        );
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse' as const,
+            permissionDecision: 'deny' as const,
+            permissionDecisionReason:
+              `You attempted to ${toolName} into ${filePath}. That path is an ephemeral session-scoped scratch dir — files written there are dropped when the orchestrator's session rotates and never land in any repo. Skills MUST be written to the brain repo at standards/skills/<name>/ via the clone-branch-push-PR workflow described at the top of developer.md (the persona you loaded). Steps: (1) clone git@github.com:inline-studio/aretmis.git into /workspace/extra/persist/repos/brain/ (or fetch+reset if it already exists there), (2) checkout -b cypher/<slug>, (3) Write the SKILL.md under standards/skills/<name>/SKILL.md inside the cloned repo, (4) commit, push, open a PR. Do NOT retry the same Write under a slightly different ephemeral path.`,
+          },
+        };
+      }
+    }
+
+    // Bash: detect write-shaped commands targeting forbidden prefixes.
+    if (toolName === 'Bash') {
+      const cmd = extractBashCommand(toolInput) || '';
+      const targetsForbidden = FORBIDDEN_SKILL_WRITE_PREFIXES.some((p) =>
+        cmd.includes(p),
+      );
+      // Common write-shaped operations: redirection (>, >>), tee,
+      // mkdir, cp, mv, ln, touch, rm. Plain `ls`/`cat`/`grep`/`git`
+      // reads are fine.
+      const isWriteShaped =
+        /(?:^|[^>])>\s|\s>>\s|\btee\b|\bmkdir\b|\bcp\b|\bmv\b|\bln\b|\btouch\b|\brm\b/.test(
+          cmd,
+        );
+      if (targetsForbidden && isWriteShaped) {
+        log(
+          `PreToolUse DENY: subagent=${process.env.NANOCLAW_SUBAGENT_NAME} tool=Bash write-shaped command targets ephemeral skill prefix: ${cmd.slice(0, 200)}`,
+        );
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse' as const,
+            permissionDecision: 'deny' as const,
+            permissionDecisionReason:
+              `Your Bash command targets an ephemeral skill location (${FORBIDDEN_SKILL_WRITE_PREFIXES.join(' or ')}) with a write-shaped operation. That path is session-scoped scratch — files written there don't land in any repo and are lost when the orchestrator's session rotates. Skills go in the brain repo at standards/skills/<name>/ via clone-branch-push-PR. Re-read the "Workspace reality" and "Where things land" sections at the TOP of developer.md (the persona you loaded). Do NOT retry with a different write technique against the same forbidden path.`,
+          },
+        };
+      }
+    }
+
+    return {};
+  };
+}
+
+/**
  * Archive the full transcript to conversations/ before compaction.
  */
 function createPreCompactHook(assistantName?: string): HookCallback {
@@ -772,6 +861,24 @@ async function runQuery(
   );
   let toolUseCount = 0;
   const recentToolCalls: Array<{ name: string; input: string }> = [];
+  // Track whether the orchestrator dispatched a subagent in this turn.
+  // Used at result-emission time to suppress hallucinated final text —
+  // the subagent reports its own result via the swarm forwarder, so
+  // the orchestrator's final "summary" is at best redundant and in
+  // practice tends to be a fabrication generated before the subagent
+  // has actually finished. The Stop hook attempts to enforce this
+  // with a block decision, but the SDK only fires Stop hooks once per
+  // turn, so the second fire that should catch post-dispatch text
+  // never happens. Suppression at the source (writeOutput) is the
+  // deterministic fix.
+  let dispatchedThisTurn = false;
+  const isDispatchToolName = (name: string): boolean =>
+    name === 'Task' ||
+    name === 'mcp__nanoclaw__dispatch_cypher' ||
+    name === 'mcp__nanoclaw__dispatch_vector' ||
+    name === 'mcp__nanoclaw__dispatch_prism' ||
+    name === 'mcp__nanoclaw__dispatch_sentinel' ||
+    name === 'mcp__nanoclaw__dispatch_triage';
   // Per-turn skill-context scope: reset on every runQuery entry. If the
   // model invokes Skill(X) then does unrelated work later in the same turn,
   // X's deniedCommands still apply; next turn starts fresh.
@@ -1001,6 +1108,7 @@ async function runQuery(
           {
             hooks: [
               createPreToolUseHook(skillConstraints, () => activeSkillName),
+              createSubagentWriteGuardHook(),
             ],
           },
         ],
@@ -1069,6 +1177,9 @@ async function runQuery(
             log(`Active skill set to "${skillName}"`);
           }
         }
+        if (isDispatchToolName(call.name)) {
+          dispatchedThisTurn = true;
+        }
       }
       if (toolUseCount >= maxToolUses) {
         log(
@@ -1108,7 +1219,31 @@ async function runQuery(
       resultCount++;
       const textResult =
         'result' in message ? (message as { result?: string }).result : null;
-      const finalText = textResult || assistantTextFallback || null;
+      let finalText = textResult || assistantTextFallback || null;
+
+      // Orchestrator hallucination suppression: if THIS turn included a
+      // dispatch_*/Task tool_use, drop the final assistant text. Empirically
+      // the orchestrator (qwen3-coder, Gemma 4) keeps emitting fabricated
+      // "the work is done" summaries between the dispatch tool call and
+      // turn-end, even after a Stop hook block. Those summaries arrive
+      // BEFORE the subagent has actually finished — they're invented from
+      // context, not grounded in any real result.
+      //
+      // The subagent's own final result is forwarded to the user via the
+      // swarm channel by the host (src/dispatch-runner.ts). The
+      // orchestrator's job after dispatching is acknowledgment via
+      // mcp__nanoclaw__send_message during the turn (which IS delivered)
+      // — anything in the final-text slot is competing noise. Drop it.
+      //
+      // Only applies to main orchestrator. Sub-channel agents (WhatsApp /
+      // Slack groups) AND dispatched subagents may legitimately put their
+      // result in the final-text slot.
+      if (containerInput.isMain && dispatchedThisTurn && finalText) {
+        log(
+          `Orchestrator dispatched in this turn — suppressing final text (${finalText.length} chars) to prevent hallucinated summary. Final text was: ${finalText.slice(0, 200)}`,
+        );
+        finalText = null;
+      }
       log(
         `Result #${resultCount}: subtype=${message.subtype}${finalText ? ` text=${finalText.slice(0, 200)}` : ''}${!textResult && assistantTextFallback ? ' (from assistant fallback)' : ''}`,
       );
