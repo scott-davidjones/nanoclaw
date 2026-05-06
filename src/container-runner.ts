@@ -357,6 +357,18 @@ async function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
+  // Wire git SSH to the persistent key bundle. The persist mount is added
+  // by buildVolumeMounts when /home/scott/artemis/persist exists; the
+  // id_ed25519 key authenticates as scott-davidjones to GitHub. Without
+  // this env, `git push` over SSH fails (~/.ssh isn't set up in the
+  // container) and Cypher can't land code in any repo.
+  // accept-new for first-contact host-key prompts; existing known_hosts
+  // entries (cached per-container) take precedence.
+  args.push(
+    '-e',
+    'GIT_SSH_COMMAND=ssh -i /workspace/extra/persist/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/tmp/known_hosts',
+  );
+
   // Pass MCP memory server URL if configured
   if (MCP_MEMORY_URL) {
     args.push('-e', `MCP_MEMORY_URL=${MCP_MEMORY_URL}`);
