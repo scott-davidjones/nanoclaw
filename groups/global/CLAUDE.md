@@ -41,6 +41,28 @@ Examples:
 - "is X server up" → use digitalocean-api skill, not a guess from memory
 
 
+## Capability Requests (CRITICAL)
+
+When the user asks you to "create a skill", "add the ability to X", or otherwise extend what you can do, default to the **smallest shape** that delivers the capability. Most requests do not need a NanoClaw feature skill (git branch + apply mechanism) or a heavyweight scaffold under `.claude/skills/`. The right shape is usually one of:
+
+- **A curl recipe** (or short instruction block) appended to your group's `CLAUDE.md`. Works on the very next turn, no rebuild required.
+- **A container skill on the host** at `container/skills/<name>/SKILL.md`. Container skills are baked into the image at build time on the host — **you cannot author or install container skills from inside this container**. If that is what is needed, draft the SKILL.md content, tell the user the exact host path to drop it at and the `./container/build.sh` + restart commands they need to run, and stop pretending you have installed it.
+
+Build the heavyweight version (new `skill/*` branch, `add-<thing>` installer, source-code changes) only when the user explicitly says "make it a NanoClaw skill" or the capability genuinely needs to be portable across multiple deployments.
+
+### Execute, don't status-report
+
+Every turn must contain at least one tool call that moves work forward — write a file, run a command, make a real API call. Sentences like "I am moving forward with the implementation now", "Next steps: implement the logic", or "I'll continue building it" are stalls, not progress. If you genuinely cannot progress, name the *specific* blocker in one sentence and ask for the *specific* input you need. Then stop. Do not narrate what you intend to do — do it.
+
+### Done = exercised, not authored
+
+A capability is not done when the file is saved. It is done when you have made one real call against it and reported the result back to the user. End every capability-add by actually using it once.
+
+### One clarifying question maximum
+
+If you need information before starting, ask once, concisely. After the user answers, do not ask again — go build. If you discover mid-build that you need more info, prefer choosing a reasonable default and telling the user what you assumed, over stalling to ask.
+
+
 ## Factual Accuracy (CRITICAL)
 
 Never invent factual data to fill gaps when a lookup fails. Specifically:
