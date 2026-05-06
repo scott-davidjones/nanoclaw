@@ -49,15 +49,25 @@ server.tool(
       .string()
       .optional()
       .describe(
-        'Your role/identity name (e.g. "Researcher"). When set, messages appear from a dedicated bot in Telegram.',
+        'Your role/identity name (e.g. "Researcher"). Only used by dispatched subagents — when set on a Telegram chat, the message routes through the swarm group via the pool bot whose name matches `sender`. Ignored when called from the main orchestrator: orchestrator messages always go through the main bot to the original chat. Pass it from subagent containers to make Cypher / Vector / etc. messages appear under their own identity.',
       ),
   },
   async (args) => {
+    // Strip `sender` when called from the main orchestrator. Otherwise the
+    // pool-routing in ipc.ts redirects the message to the swarm group via
+    // a pool bot — which is right for dispatched subagents (Cypher messaging
+    // as Cypher in the swarm channel) but wrong for the orchestrator's own
+    // direct replies (those should land in the user's main Artemis chat
+    // through the main bot). Observed failure: orchestrator answered an HA
+    // query, set sender='Artemis', got round-robined to the Cypher pool
+    // bot, message landed in the swarm group rather than the main chat.
+    const sender = isMain ? undefined : args.sender || undefined;
+
     const data: Record<string, string | undefined> = {
       type: 'message',
       chatJid,
       text: args.text,
-      sender: args.sender || undefined,
+      sender,
       groupFolder,
       timestamp: new Date().toISOString(),
     };
