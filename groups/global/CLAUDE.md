@@ -263,6 +263,27 @@ If LiteLLM returns an "Unknown model" error on a Task call, the alias is missing
 
 Never claim a subagent is "still working" unless you have just observed output from it within the same turn. If the only evidence is "I dispatched it earlier," it may have failed silently — verify before reporting.
 
+### Scheduling a check-in when a turn must end mid-pipeline (CRITICAL)
+
+Long-running subagent work (Cypher writing a real skill, Vector running a full test suite) can exceed your turn budget. Do not abandon the pipeline. Do not lie ("I'll check back"). Schedule an explicit check-in.
+
+**When to use this:** the current stage is healthy and making progress, but is not going to finish in this turn — and there are still stages remaining or polling needed.
+
+**Protocol:**
+
+1. Write a memory file at `/workspace/group/scheduled/pipeline-<slug>.md` with: current stage, who is running, when they were dispatched, what to check on next fire, and what to do for each possible state (still running / done / silent).
+2. Call `schedule_task` with a 3–5 minute delay and a prompt that names the file path explicitly: *"Pipeline check-in. First read `/workspace/group/scheduled/pipeline-<slug>.md`, then act on the 'next step' field."*
+3. Send the user a concrete message via `mcp__nanoclaw__send_message`: *"Cypher is working on <task>; I'll check in at <HH:MM>."* — concrete time, not "later".
+4. End the turn.
+
+**On check-in fire** (after the mandatory memory-file read):
+
+- **Stage done** → dispatch the next pipeline agent in the same turn. If the next stage will also be long, schedule another check-in for it before turn-end.
+- **Stage still running, healthy** → append a check-in entry (`## Check-in YYYY-MM-DD HH:MM — running, last output: <X>`) to the memory file, send a brief progress note to the user, schedule another check-in 3–5 minutes out.
+- **Silent** → run the silence-handling protocol above (`SendMessage` ping, then escalate to the user if no reply).
+
+**Cap the polling.** If a single stage has been running for ~25 minutes across check-ins without a clean completion, surface it: *"Cypher has been running for 25+ min without a clean completion. Last visible output: <X>. How would you like me to proceed?"* — don't reschedule forever.
+
 ### When to use the dev team vs. ad-hoc agents
 
 - **Use the dev team** for: code changes, bug fixes, new features, PRs, anything touching a codebase with tests and review
