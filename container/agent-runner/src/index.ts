@@ -31,6 +31,7 @@ import {
   HookCallback,
   PreCompactHookInput,
   PreToolUseHookInput,
+  StopHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import {
   extractBashCommand,
@@ -301,6 +302,139 @@ function createPreCompactHook(assistantName?: string): HookCallback {
     }
 
     return {};
+  };
+}
+
+/**
+ * Patterns that mark a user request as "dev-shaped" — i.e. the kind of
+ * thing that should be dispatched to Cypher via the Task tool rather than
+ * answered directly by the orchestrator. Anchored on common verbs/phrasings
+ * Scott actually uses; expand as we observe more failure modes.
+ */
+const DEV_REQUEST_PATTERNS: RegExp[] = [
+  /\bcreate\s+(?:me\s+)?(?:a|an|the)?\s*\w*\s*skill\b/i,
+  /\badd\s+(?:the\s+|an?\s+)?ability\s+to\b/i,
+  /\bbuild\s+(?:me\s+)?(?:a|an|the)\b/i,
+  /\bmake\s+(?:me\s+)?(?:a|an|the)\s+(?:script|tool|plugin|module|feature|skill|command|hook)\b/i,
+  /\bimplement\s+\w/i,
+  /\bfix\s+(?:the\s+)?(?:bug|issue|broken)\b/i,
+  /\brefactor\b/i,
+  /\bpromote\s+\w+\s+to\b/i,
+  /\bport\s+\w+\s+to\b/i,
+  /\bswitch\s+\w+\s+to\b/i,
+  /\bworks?\s+but\s+I\s+want\b/i,
+  /\b(?:write|develop|code)\s+(?:me\s+)?(?:a|an|the)\b/i,
+  /\bopen\s+a\s+pr\b/i,
+];
+
+function isDevRequest(text: string): boolean {
+  if (!text) return false;
+  return DEV_REQUEST_PATTERNS.some((p) => p.test(text));
+}
+
+function extractUserText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter(
+        (c): c is { type: string; text?: string } =>
+          !!c && typeof c === 'object' && 'type' in c,
+      )
+      .filter((c) => c.type === 'text')
+      .map((c) => c.text || '')
+      .join('');
+  }
+  return '';
+}
+
+/**
+ * Block end-of-turn for dev-shaped user requests when no Task dispatch
+ * happened. Soft rules in groups/global/CLAUDE.md are not enough: Gemma 4
+ * (Artemis) repeatedly violates "Execute, don't narrate" by sending a
+ * planning message and ending the turn. This hook reads the transcript at
+ * Stop time, checks the most recent user message for dev-shaped patterns,
+ * and if no `Task` tool_use happened since that message, blocks the stop
+ * with a system message instructing the agent to dispatch.
+ *
+ * Only fires for the main orchestrator. Subagents (Cypher, Vector, etc.)
+ * shouldn't dispatch Task themselves; they do the work.
+ *
+ * `stop_hook_active === true` means the hook is firing on a continuation
+ * after a previous block; pass through to avoid infinite loops if the
+ * agent still refuses to dispatch after one prompt.
+ */
+function createStopHook(isMain: boolean): HookCallback {
+  return async (input) => {
+    if (!isMain) return {};
+    const stopInput = input as StopHookInput;
+    if (stopInput.stop_hook_active) return {};
+
+    const transcriptPath = stopInput.transcript_path;
+    if (!transcriptPath || !fs.existsSync(transcriptPath)) return {};
+
+    let entries: unknown[];
+    try {
+      const content = fs.readFileSync(transcriptPath, 'utf-8');
+      entries = content
+        .split('\n')
+        .filter((l) => l.trim())
+        .map((l) => {
+          try {
+            return JSON.parse(l);
+          } catch {
+            return null;
+          }
+        })
+        .filter((e): e is Record<string, unknown> => !!e);
+    } catch {
+      return {};
+    }
+
+    // Find the most recent user message (the request currently being answered).
+    let lastUserIdx = -1;
+    let lastUserText = '';
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i] as { type?: string; message?: { content?: unknown } };
+      if (entry.type === 'user' && entry.message?.content) {
+        const text = extractUserText(entry.message.content);
+        if (text) {
+          lastUserIdx = i;
+          lastUserText = text;
+          break;
+        }
+      }
+    }
+    if (lastUserIdx === -1) return {};
+    if (!isDevRequest(lastUserText)) return {};
+
+    // Find any Task tool_use after the last user message.
+    const dispatched = entries.slice(lastUserIdx + 1).some((e) => {
+      const entry = e as {
+        type?: string;
+        message?: { content?: unknown };
+      };
+      if (entry.type !== 'assistant') return false;
+      if (!Array.isArray(entry.message?.content)) return false;
+      return entry.message.content.some(
+        (b: unknown) =>
+          !!b &&
+          typeof b === 'object' &&
+          'type' in b &&
+          (b as { type: string }).type === 'tool_use' &&
+          'name' in b &&
+          (b as { name: string }).name === 'Task',
+      );
+    });
+    if (dispatched) return {};
+
+    log(
+      `Stop hook: dev-shaped request with no Task dispatch — blocking turn end`,
+    );
+    return {
+      decision: 'block' as const,
+      reason:
+        'You wrote a response without dispatching a subagent. This request looks like dev work (create a skill, add a feature, fix a bug, refactor, build, implement, promote, port, etc.) and per groups/global/CLAUDE.md "Capability Requests" your first action MUST be a Task dispatch to Cypher. Call the Task tool now with the user request verbatim and the appropriate subagent body. Do not end this turn until Task has been called.',
+    };
   };
 }
 
@@ -705,6 +839,9 @@ async function runQuery(
               createPreToolUseHook(skillConstraints, () => activeSkillName),
             ],
           },
+        ],
+        Stop: [
+          { hooks: [createStopHook(containerInput.isMain)] },
         ],
       },
     },
