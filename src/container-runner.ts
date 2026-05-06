@@ -261,14 +261,36 @@ function buildVolumeMounts(
     );
   }
 
-  // Sync skills from container/skills/ into each group's .claude/skills/
-  const skillsSrc = path.join(process.cwd(), 'container', 'skills');
+  // Sync skills into each group's .claude/skills/. Source order:
+  //
+  //   1. brain repo at $BRAIN_ROOT/standards/skills/ — canonical home.
+  //      Skills are Artemis-personal (not nanoclaw-runtime-specific) and
+  //      live with the agent personas in the brain repo. They survive
+  //      nanoclaw rebuilds, fork swaps, runtime changes.
+  //
+  //   2. legacy nanoclaw container/skills/ — pre-migration location.
+  //      Still consulted as a fallback for skills that haven't been
+  //      moved yet, OR for runs without BRAIN_ROOT configured. Last-
+  //      write-wins: brain skills override legacy nanoclaw skills with
+  //      the same directory name.
+  //
+  // The sources merge into `groupSessionsDir/skills/` which the SDK
+  // then auto-discovers from the container side via the /home/node/.claude
+  // mount.
   const skillsDst = path.join(groupSessionsDir, 'skills');
-  if (fs.existsSync(skillsSrc)) {
-    for (const skillDir of fs.readdirSync(skillsSrc)) {
-      const srcDir = path.join(skillsSrc, skillDir);
+  const legacySkillsSrc = path.join(process.cwd(), 'container', 'skills');
+  const brainRoot = process.env.BRAIN_ROOT;
+  const brainSkillsSrc = brainRoot
+    ? path.join(brainRoot, 'standards', 'skills')
+    : null;
+  // Apply legacy first so brain wins on collision.
+  for (const src of [legacySkillsSrc, brainSkillsSrc]) {
+    if (!src || !fs.existsSync(src)) continue;
+    for (const skillDir of fs.readdirSync(src)) {
+      const srcDir = path.join(src, skillDir);
       if (!fs.statSync(srcDir).isDirectory()) continue;
       const dstDir = path.join(skillsDst, skillDir);
+      fs.rmSync(dstDir, { recursive: true, force: true });
       fs.cpSync(srcDir, dstDir, { recursive: true });
     }
   }
