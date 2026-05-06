@@ -907,3 +907,41 @@ export function writeGroupsSnapshot(
     ),
   );
 }
+
+/**
+ * Archive a group's SDK transcript jsonl files so the next agent run starts
+ * fresh with no resume context. Used by the `/reset` slash command.
+ *
+ * The SDK persists per-session transcripts at
+ * `<DATA_DIR>/sessions/<folder>/.claude/projects/-workspace-group/*.jsonl`
+ * (path mirrored into the container at `/home/node/.claude`). When a session
+ * id is present in the host DB, the SDK resumes from the matching jsonl on
+ * the next query — so dropping the DB row alone is not enough. We move the
+ * jsonl files into a timestamped sibling directory rather than deleting,
+ * so a stuck conversation can still be inspected/recovered if needed.
+ *
+ * Returns the number of jsonl files archived. Safe to call when no session
+ * exists (returns 0).
+ */
+export function archiveGroupSessions(folder: string): number {
+  const projectsDir = path.join(
+    DATA_DIR,
+    'sessions',
+    folder,
+    '.claude',
+    'projects',
+    '-workspace-group',
+  );
+  if (!fs.existsSync(projectsDir)) return 0;
+
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const archiveDir = path.join(projectsDir, `.archived-${ts}`);
+  let count = 0;
+  for (const entry of fs.readdirSync(projectsDir)) {
+    if (!entry.endsWith('.jsonl')) continue;
+    if (count === 0) fs.mkdirSync(archiveDir, { recursive: true });
+    fs.renameSync(path.join(projectsDir, entry), path.join(archiveDir, entry));
+    count++;
+  }
+  return count;
+}

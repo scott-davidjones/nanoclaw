@@ -18,6 +18,7 @@ import {
   getRegisteredChannelNames,
 } from './channels/registry.js';
 import {
+  archiveGroupSessions,
   ContainerOutput,
   handleEmptyResponseSentinel,
   runContainerAgent,
@@ -277,6 +278,18 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
           (hasTrigger &&
             (msg.is_from_me ||
               isTriggerAllowed(chatJid, msg.sender, loadSenderAllowlist())))
+        );
+      },
+      resetSession: async () => {
+        // Drop the SDK-resume session id from in-memory cache and DB so the
+        // next run starts fresh; archive the SDK transcript jsonls so the
+        // SDK can't resume from them either.
+        delete sessions[group.folder];
+        deleteSession(group.folder);
+        const archived = archiveGroupSessions(group.folder);
+        logger.info(
+          { group: group.name, archivedTranscripts: archived },
+          'Session reset',
         );
       },
     },

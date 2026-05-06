@@ -39,6 +39,22 @@ describe('extractSessionCommand', () => {
   it('is case-sensitive for the command', () => {
     expect(extractSessionCommand('/Compact', trigger)).toBeNull();
   });
+
+  it('detects bare /reset', () => {
+    expect(extractSessionCommand('/reset', trigger)).toBe('/reset');
+  });
+
+  it('detects /reset with trigger prefix', () => {
+    expect(extractSessionCommand('@Andy /reset', trigger)).toBe('/reset');
+  });
+
+  it('rejects /reset with extra text', () => {
+    expect(extractSessionCommand('/reset please', trigger)).toBeNull();
+  });
+
+  it('rejects /resets (partial)', () => {
+    expect(extractSessionCommand('/resets', trigger)).toBeNull();
+  });
 });
 
 describe('isSessionCommandAllowed', () => {
@@ -85,6 +101,7 @@ function makeDeps(
     advanceCursor: vi.fn(),
     formatMessages: vi.fn().mockReturnValue('<formatted>'),
     canSenderInteract: vi.fn().mockReturnValue(true),
+    resetSession: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -243,5 +260,81 @@ describe('handleSessionCommand', () => {
     expect(deps.sendMessage).toHaveBeenCalledWith(
       expect.stringContaining('Failed to process'),
     );
+  });
+
+  describe('/reset', () => {
+    it('calls resetSession, confirms to user, and skips the agent', async () => {
+      const deps = makeDeps();
+      const result = await handleSessionCommand({
+        missedMessages: [makeMsg('/reset')],
+        isMainGroup: true,
+        groupName: 'main',
+        triggerPattern: trigger,
+        timezone: 'UTC',
+        deps,
+      });
+      expect(result).toEqual({ handled: true, success: true });
+      expect(deps.resetSession).toHaveBeenCalledOnce();
+      expect(deps.sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('Session reset'),
+      );
+      expect(deps.runAgent).not.toHaveBeenCalled();
+      expect(deps.advanceCursor).toHaveBeenCalledOnce();
+    });
+
+    it('reports failure if resetSession throws', async () => {
+      const deps = makeDeps({
+        resetSession: vi.fn().mockRejectedValue(new Error('disk full')),
+      });
+      const result = await handleSessionCommand({
+        missedMessages: [makeMsg('/reset')],
+        isMainGroup: true,
+        groupName: 'main',
+        triggerPattern: trigger,
+        timezone: 'UTC',
+        deps,
+      });
+      expect(result).toEqual({ handled: true, success: true });
+      expect(deps.sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('/reset failed'),
+      );
+      expect(deps.runAgent).not.toHaveBeenCalled();
+    });
+
+    it('does not forward pre-/reset messages to the agent', async () => {
+      // /reset's whole point is discarding state; pre-batch messages must
+      // not leak into the soon-to-be-discarded session.
+      const deps = makeDeps();
+      await handleSessionCommand({
+        missedMessages: [
+          makeMsg('hi', { timestamp: '100' }),
+          makeMsg('/reset', { timestamp: '200' }),
+        ],
+        isMainGroup: true,
+        groupName: 'main',
+        triggerPattern: trigger,
+        timezone: 'UTC',
+        deps,
+      });
+      expect(deps.runAgent).not.toHaveBeenCalled();
+      expect(deps.resetSession).toHaveBeenCalledOnce();
+    });
+
+    it('denies non-trusted senders in non-main groups', async () => {
+      const deps = makeDeps();
+      const result = await handleSessionCommand({
+        missedMessages: [makeMsg('/reset', { is_from_me: false })],
+        isMainGroup: false,
+        groupName: 'work',
+        triggerPattern: trigger,
+        timezone: 'UTC',
+        deps,
+      });
+      expect(result).toEqual({ handled: true, success: true });
+      expect(deps.resetSession).not.toHaveBeenCalled();
+      expect(deps.sendMessage).toHaveBeenCalledWith(
+        expect.stringContaining('admin access'),
+      );
+    });
   });
 });

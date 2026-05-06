@@ -3,7 +3,7 @@ import { logger } from './logger.js';
 
 /**
  * Extract a session slash command from a message, stripping the trigger prefix if present.
- * Returns the slash command (e.g., '/compact') or null if not a session command.
+ * Returns the slash command (e.g., '/compact', '/reset') or null if not a session command.
  */
 export function extractSessionCommand(
   content: string,
@@ -12,6 +12,7 @@ export function extractSessionCommand(
   let text = content.trim();
   text = text.replace(triggerPattern, '').trim();
   if (text === '/compact') return '/compact';
+  if (text === '/reset') return '/reset';
   return null;
 }
 
@@ -45,6 +46,12 @@ export interface SessionCommandDeps {
   formatMessages: (msgs: NewMessage[], timezone: string) => string;
   /** Whether the denied sender would normally be allowed to interact (for denial messages). */
   canSenderInteract: (msg: NewMessage) => boolean;
+  /**
+   * Reset the agent session for this group. Drops the SDK-resume session id
+   * (so the next message starts fresh, no carry-over context) and archives
+   * the SDK transcript files. Required to handle `/reset`.
+   */
+  resetSession: () => Promise<void>;
 }
 
 function resultToText(result: string | object | null | undefined): string {
@@ -99,6 +106,31 @@ export async function handleSessionCommand(opts: {
 
   // AUTHORIZED: process pre-compact messages first, then run the command
   logger.info({ group: groupName, command }, 'Session command');
+
+  // /reset is handled out-of-band: drop the agent session, archive transcripts,
+  // confirm to the user. Pre-command messages in the same batch are NOT
+  // forwarded to the agent (the whole point of /reset is to discard state).
+  // They get advanced past with the cursor so they don't replay.
+  if (command === '/reset') {
+    try {
+      await deps.resetSession();
+    } catch (err) {
+      logger.error(
+        { group: groupName, err },
+        'resetSession failed for /reset command',
+      );
+      await deps.sendMessage(
+        '/reset failed — session may still be partially active. Check logs.',
+      );
+      deps.advanceCursor(cmdMsg.timestamp);
+      return { handled: true, success: true };
+    }
+    await deps.sendMessage(
+      'Session reset. Next message starts fresh — any in-flight work has been discarded.',
+    );
+    deps.advanceCursor(cmdMsg.timestamp);
+    return { handled: true, success: true };
+  }
 
   const cmdIndex = missedMessages.indexOf(cmdMsg);
   const preCompactMsgs = missedMessages.slice(0, cmdIndex);
