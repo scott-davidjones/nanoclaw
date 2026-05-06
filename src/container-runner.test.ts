@@ -10,8 +10,10 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
 vi.mock('./config.js', () => ({
   ANTHROPIC_BASE_URL: undefined,
   AUTO_COMPACT_WINDOW: 60000,
+  CONTAINER_CPU_LIMIT: '',
   CONTAINER_IMAGE: 'nanoclaw-agent:latest',
   CONTAINER_MAX_OUTPUT_SIZE: 10485760,
+  CONTAINER_MEMORY_LIMIT: '',
   CONTAINER_TIMEOUT: 1800000, // 30min
   DATA_DIR: '/tmp/nanoclaw-test-data',
   GROUPS_DIR: '/tmp/nanoclaw-test-groups',

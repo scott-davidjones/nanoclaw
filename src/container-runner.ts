@@ -9,8 +9,10 @@ import path from 'path';
 import {
   ANTHROPIC_BASE_URL,
   AUTO_COMPACT_WINDOW,
+  CONTAINER_CPU_LIMIT,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
+  CONTAINER_MEMORY_LIMIT,
   CONTAINER_TIMEOUT,
   DATA_DIR,
   GROUPS_DIR,
@@ -339,6 +341,15 @@ async function buildContainerArgs(
   model?: string,
 ): Promise<string[]> {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
+
+  // Resource caps prevent a runaway agent from exhausting host RAM/CPU.
+  // Empty string in config disables the cap (e.g. for big hosts).
+  if (CONTAINER_MEMORY_LIMIT) {
+    args.push('--memory', CONTAINER_MEMORY_LIMIT);
+  }
+  if (CONTAINER_CPU_LIMIT) {
+    args.push('--cpus', CONTAINER_CPU_LIMIT);
+  }
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);

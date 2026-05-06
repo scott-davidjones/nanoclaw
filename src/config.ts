@@ -110,6 +110,14 @@ export const MAX_CONCURRENT_CONTAINERS = Math.max(
   parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5,
 );
 
+// Per-container resource caps. Without these, a runaway agent can exhaust
+// host RAM/CPU — on a 7.6 GB host with MAX_CONCURRENT=5, five unbounded
+// agents will trivially OOM the kernel. Defaults sized for a small host;
+// tune via env on bigger boxes. Empty string disables the flag.
+export const CONTAINER_MEMORY_LIMIT =
+  process.env.CONTAINER_MEMORY_LIMIT ?? '2g';
+export const CONTAINER_CPU_LIMIT = process.env.CONTAINER_CPU_LIMIT ?? '1.5';
+
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
