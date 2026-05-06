@@ -1039,6 +1039,29 @@ export async function runSubagentContainer(opts: {
       );
 
       if (code !== 0) {
+        // If we already parsed a successful OUTPUT marker before the
+        // container died, honour the result. The host SIGKILLs subagent
+        // containers that hang after emitting their reply (the
+        // agent-runner doesn't exit on stdin EOF — that's a known follow-
+        // up). Without this branch, those kills surface to the user as
+        // "cypher failed: code=137" with the real reply text discarded,
+        // which is exactly the failure mode that motivates this guard.
+        if (finalResult !== null) {
+          logger.warn(
+            {
+              containerName,
+              subagentName,
+              dispatchId,
+              exitCode: code,
+            },
+            'Subagent exited non-zero after emitting success result — honouring the parsed result',
+          );
+          resolve({
+            status: 'success',
+            result: finalResult,
+          });
+          return;
+        }
         resolve({
           status: 'error',
           result: null,

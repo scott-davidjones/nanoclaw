@@ -657,26 +657,44 @@ async function runQuery(
     }
   }
 
-  // Poll IPC for follow-up messages and _close sentinel during the query
-  let ipcPolling = true;
+  // Single-shot mode for dispatched subagents — they receive one prompt
+  // and exit. End the stream immediately after the prompt is queued so the
+  // SDK iterator terminates after processing the initial turn rather than
+  // looping forever waiting for follow-up IPC messages. Without this, the
+  // subagent container hangs after emitting its OUTPUT marker; the host
+  // has to SIGKILL it, which produces exit code 137 and used to surface
+  // to the user as "subagent failed". The host has a fallback that
+  // honours a parsed success result over a non-zero exit, but this is
+  // the proper fix.
+  const subagentSingleShot = !!process.env.NANOCLAW_SUBAGENT_NAME;
+  let ipcPolling = !subagentSingleShot;
   let closedDuringQuery = false;
-  const pollIpcDuringQuery = () => {
-    if (!ipcPolling) return;
-    if (shouldClose()) {
-      log('Close sentinel detected during query, ending stream');
-      closedDuringQuery = true;
-      stream.end();
-      ipcPolling = false;
-      return;
-    }
-    const messages = drainIpcInput();
-    for (const text of messages) {
-      log(`Piping IPC message into active query (${text.length} chars)`);
-      stream.push(text);
-    }
+  if (subagentSingleShot) {
+    log(
+      `Subagent single-shot mode (NANOCLAW_SUBAGENT_NAME=${process.env.NANOCLAW_SUBAGENT_NAME}) — ending stream after initial prompt`,
+    );
+    stream.end();
+  } else {
+    // Multi-turn mode (orchestrator + sub-channel groups) — poll IPC for
+    // follow-up messages and the _close sentinel during the query.
+    const pollIpcDuringQuery = () => {
+      if (!ipcPolling) return;
+      if (shouldClose()) {
+        log('Close sentinel detected during query, ending stream');
+        closedDuringQuery = true;
+        stream.end();
+        ipcPolling = false;
+        return;
+      }
+      const messages = drainIpcInput();
+      for (const text of messages) {
+        log(`Piping IPC message into active query (${text.length} chars)`);
+        stream.push(text);
+      }
+      setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
+    };
     setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
-  };
-  setTimeout(pollIpcDuringQuery, IPC_POLL_MS);
+  }
 
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
