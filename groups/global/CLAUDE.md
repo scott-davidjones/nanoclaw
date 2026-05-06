@@ -211,10 +211,10 @@ When a development task comes in, **you are the orchestrator**. You must stay al
    - If it failed or needs fixes → the failing agent will schedule Triage itself; you do not need to intervene
 7. Repeat until the pipeline is complete (all stages done)
 
-**Model routing:** You run on `haiku` by default via container-level `ANTHROPIC_MODEL`. Sub-agent models come from the YAML frontmatter in each `.md` file. The SDK's Task tool constrains `model` to the enum `sonnet | opus | haiku`, so agent frontmatter uses these enum names. LiteLLM maps them to real backends:
+**Model routing:** You (Artemis) run on the dedicated `artemis` LiteLLM alias → **Gemma 4 26B** on Spark, set on the orchestrator container via `ANTHROPIC_MODEL`. Sub-agent models come from the YAML frontmatter in each `.md` file. The SDK's Task tool constrains `model` to the enum `sonnet | opus | haiku`, so agent frontmatter uses these enum names. LiteLLM maps them to real backends:
 
-- `haiku` → qwen3:30b on Spark (used by you, Vector, Prism, Triage — local general-purpose)
-- `sonnet` → qwen3-coder-next on Spark (used by Cypher — local coding specialist)
+- `haiku` → Qwen3-VL 8B Instruct on Spark (used by Vector, Prism, Triage — small local model with vision support)
+- `sonnet` → Qwen3-Coder-Next on Spark (used by Cypher — local coding specialist)
 - `opus` → Anthropic Opus via API (used by Sentinel — cloud, no fallback, fails loud on outage)
 
 Claude Code SDK v2.1.114+ expands the enum shortcuts to full model IDs before sending (`haiku` → `claude-haiku-4-5-20251001`, etc). LiteLLM has routes for both the shortcut and the expanded ID forms, so either works.
