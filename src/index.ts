@@ -166,6 +166,31 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
     }
   }
 
+  // Symlink + @-import wiring so the SDK loads groups/global/CLAUDE.md
+  // (operational/dispatch context) into the agent's memory tree. The
+  // symlink target is container-side (/workspace/global/CLAUDE.md);
+  // it's dangling on the host but resolves once the container mounts
+  // /workspace/global. The SDK's @-import only follows paths inside cwd,
+  // so the link itself must live in the group folder. See commit 871bfa1
+  // for the rationale (passphrase-validated).
+  const globalLink = path.join(groupDir, '.claude-global.md');
+  try {
+    fs.lstatSync(globalLink);
+  } catch {
+    fs.symlinkSync('/workspace/global/CLAUDE.md', globalLink);
+    logger.info({ folder: group.folder }, 'Created .claude-global.md symlink');
+  }
+  if (fs.existsSync(groupMdFile)) {
+    const body = fs.readFileSync(groupMdFile, 'utf-8');
+    if (!/^@\.\/\.claude-global\.md\b/m.test(body)) {
+      fs.writeFileSync(groupMdFile, `@./.claude-global.md\n\n${body}`);
+      logger.info(
+        { folder: group.folder },
+        'Prepended @./.claude-global.md import to CLAUDE.md',
+      );
+    }
+  }
+
   logger.info(
     { jid, name: group.name, folder: group.folder },
     'Group registered',
