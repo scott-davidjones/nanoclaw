@@ -10,6 +10,14 @@ vi.mock('./container-runner.js', () => ({
   runSubagentContainer: vi.fn(),
 }));
 
+// Mock config so DATA_DIR points at a tmp path the test can manage.
+let mockDataDir: string;
+vi.mock('./config.js', () => ({
+  get DATA_DIR() {
+    return mockDataDir;
+  },
+}));
+
 import {
   splitFrontmatter,
   validateDispatchTask,
@@ -29,11 +37,13 @@ function writeAgent(file: string, model: string | null, body: string) {
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-test-'));
+  mockDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dispatch-data-'));
   vi.clearAllMocks();
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.rmSync(mockDataDir, { recursive: true, force: true });
 });
 
 describe('splitFrontmatter', () => {
@@ -270,6 +280,94 @@ describe('processDispatchIpc', () => {
     const deps = makeDeps();
     await processDispatchIpc(baseTask, deps);
     expect(deps.pipeFollowUp).not.toHaveBeenCalled();
+  });
+
+  it('forwards final result to user as agent-tagged message when pipeline=false', async () => {
+    writeAgent('developer.md', 'sonnet', '# body');
+    vi.mocked(runSubagentContainer).mockResolvedValue({
+      status: 'success',
+      result: 'PR opened: https://example/pr/1',
+    });
+    await processDispatchIpc(baseTask, makeDeps());
+
+    const messagesDir = path.join(
+      mockDataDir,
+      'ipc',
+      'telegram_main',
+      'messages',
+    );
+    const files = fs.readdirSync(messagesDir);
+    expect(files.length).toBe(1);
+    const data = JSON.parse(
+      fs.readFileSync(path.join(messagesDir, files[0]), 'utf-8'),
+    );
+    expect(data.type).toBe('message');
+    expect(data.chatJid).toBe('tg:123');
+    expect(data.text).toBe('PR opened: https://example/pr/1');
+    expect(data.sender).toBe('cypher');
+    expect(data.groupFolder).toBe('telegram_main');
+  });
+
+  it('forwards a placeholder when subagent succeeded but emitted no final text', async () => {
+    writeAgent('developer.md', 'sonnet', '# body');
+    vi.mocked(runSubagentContainer).mockResolvedValue({
+      status: 'success',
+      result: '',
+    });
+    await processDispatchIpc(baseTask, makeDeps());
+    const messagesDir = path.join(
+      mockDataDir,
+      'ipc',
+      'telegram_main',
+      'messages',
+    );
+    const files = fs.readdirSync(messagesDir);
+    expect(files.length).toBe(1);
+    const data = JSON.parse(
+      fs.readFileSync(path.join(messagesDir, files[0]), 'utf-8'),
+    );
+    expect(data.text).toMatch(/cypher completed without final text/);
+  });
+
+  it('forwards an error notice when subagent failed and pipeline=false', async () => {
+    writeAgent('developer.md', 'sonnet', '# body');
+    vi.mocked(runSubagentContainer).mockResolvedValue({
+      status: 'error',
+      result: null,
+      error: 'kaboom',
+    });
+    await processDispatchIpc(baseTask, makeDeps());
+    const messagesDir = path.join(
+      mockDataDir,
+      'ipc',
+      'telegram_main',
+      'messages',
+    );
+    const files = fs.readdirSync(messagesDir);
+    expect(files.length).toBe(1);
+    const data = JSON.parse(
+      fs.readFileSync(path.join(messagesDir, files[0]), 'utf-8'),
+    );
+    expect(data.text).toMatch(/cypher failed: kaboom/);
+  });
+
+  it('does NOT forward to user when pipeline=true (orchestrator handles it)', async () => {
+    writeAgent('developer.md', 'sonnet', '# body');
+    vi.mocked(runSubagentContainer).mockResolvedValue({
+      status: 'success',
+      result: 'done',
+    });
+    await processDispatchIpc({ ...baseTask, pipeline: true }, makeDeps());
+    const messagesDir = path.join(
+      mockDataDir,
+      'ipc',
+      'telegram_main',
+      'messages',
+    );
+    const exists = fs.existsSync(messagesDir);
+    if (exists) {
+      expect(fs.readdirSync(messagesDir).length).toBe(0);
+    }
   });
 
   it('pipes follow-up to originator when pipeline=true', async () => {

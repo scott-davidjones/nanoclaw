@@ -32,6 +32,7 @@
 import fs from 'fs';
 import path from 'path';
 
+import { DATA_DIR } from './config.js';
 import { runSubagentContainer } from './container-runner.js';
 import { logger } from './logger.js';
 import type { RegisteredGroup } from './types.js';
@@ -327,6 +328,62 @@ export async function processDispatchIpc(
     error: containerResult.error,
     durationMs: Date.now() - startTime,
   };
+
+  // pipeline=false fire-and-forget: forward the subagent's final result
+  // to the user as a message tagged with the agent name. Without this,
+  // qwen3-coder-class subagents that emit their reply via the SDK result
+  // path (rather than calling mcp__nanoclaw__send_message during the run)
+  // silently disappear from the user's view — observed: Cypher wrote a
+  // 200-char result text plus tool-use successes, never called
+  // send_message, and the user got nothing after Artemis's "dispatched"
+  // ack. The host knows the result, so the host forwards it.
+  //
+  // sender=<agent> triggers ipc.ts pool routing to the swarm channel via
+  // the matching pool bot (Cypher / Vector / etc.). User sees the result
+  // in their normal subagent-activity channel.
+  if (!task.pipeline) {
+    try {
+      const messagesDir = path.join(
+        DATA_DIR,
+        'ipc',
+        group.folder,
+        'messages',
+      );
+      fs.mkdirSync(messagesDir, { recursive: true });
+      const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
+      const text =
+        result.status === 'success'
+          ? result.result || `(${task.agent} completed without final text)`
+          : `${task.agent} failed: ${result.error || 'unknown error'}`;
+      const tempPath = path.join(messagesDir, `${filename}.tmp`);
+      fs.writeFileSync(
+        tempPath,
+        JSON.stringify({
+          type: 'message',
+          chatJid: task.chat_jid,
+          text,
+          sender: task.agent,
+          groupFolder: group.folder,
+          timestamp: new Date().toISOString(),
+        }),
+      );
+      fs.renameSync(tempPath, path.join(messagesDir, filename));
+      logger.info(
+        {
+          dispatch_id: task.dispatch_id,
+          agent: task.agent,
+          chatJid: task.chat_jid,
+          textChars: text.length,
+        },
+        'Forwarded subagent final result to user',
+      );
+    } catch (err) {
+      logger.error(
+        { dispatch_id: task.dispatch_id, err },
+        'Failed to forward subagent final result to user',
+      );
+    }
+  }
 
   // Pipeline mode: notify the originating orchestrator so it can advance
   // to the next stage. Currently best-effort — pipeFollowUp returns false
