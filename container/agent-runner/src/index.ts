@@ -1384,6 +1384,20 @@ async function main(): Promise<void> {
         break;
       }
 
+      // Subagent single-shot mode: exit after the first query completes.
+      // Dispatched subagents (Cypher / Vector / Prism / Sentinel / Triage)
+      // are one-shot; without this break the main loop falls into
+      // waitForIpcMessage() and blocks forever, keeping the container
+      // alive until CONTAINER_TIMEOUT (30 min). The earlier stream.end()-
+      // immediately fix only ends the per-query SDK iterator; this is
+      // the matching exit for the outer turn loop.
+      if (process.env.NANOCLAW_SUBAGENT_NAME) {
+        log(
+          `Subagent ${process.env.NANOCLAW_SUBAGENT_NAME} single-shot mode, exiting after first query`,
+        );
+        break;
+      }
+
       // Emit session update so host can track it
       writeOutput({ status: 'success', result: null, newSessionId: sessionId });
 
