@@ -436,16 +436,72 @@ function createStopHook(isMain: boolean): HookCallback {
           isDispatchToolName((b as { name: string }).name),
       );
     });
-    if (dispatched) return {};
+    if (!dispatched) {
+      log(
+        `Stop hook: dev-shaped request with no dispatch — blocking turn end`,
+      );
+      return {
+        decision: 'block' as const,
+        reason:
+          'You wrote a response without dispatching a subagent. This request looks like dev work (create a skill, add a feature, fix a bug, refactor, build, implement, promote, port, etc.) and per OPERATIONS.md "Capability Requests" your first action MUST be a dispatch. Call dispatch_cypher (or dispatch_vector / dispatch_prism / dispatch_sentinel / dispatch_triage as appropriate) NOW with the user request verbatim. The legacy Task tool also counts. Do not end this turn until a dispatch tool has been called.',
+      };
+    }
 
-    log(
-      `Stop hook: dev-shaped request with no dispatch — blocking turn end`,
-    );
-    return {
-      decision: 'block' as const,
-      reason:
-        'You wrote a response without dispatching a subagent. This request looks like dev work (create a skill, add a feature, fix a bug, refactor, build, implement, promote, port, etc.) and per OPERATIONS.md "Capability Requests" your first action MUST be a dispatch. Call dispatch_cypher (or dispatch_vector / dispatch_prism / dispatch_sentinel / dispatch_triage as appropriate) NOW with the user request verbatim. The legacy Task tool also counts. Do not end this turn until a dispatch tool has been called.',
-    };
+    // Post-dispatch text guard. Dispatch happened — check the LAST
+    // assistant message for user-facing text content. If present, that
+    // text becomes the orchestrator's "final response" and is sent to
+    // the user channel as if it were a real summary of the dispatched
+    // work. Empirically observed: Gemma 4 / qwen3-coder repeatedly
+    // hallucinate "the skill is updated" / "Cypher completed" summaries
+    // before Cypher has actually finished its run.
+    //
+    // The right communication channel after a dispatch is
+    // mcp__nanoclaw__send_message (a brief acknowledgment routed via the
+    // main bot to the user's chat). The subagent reports its OWN final
+    // result via the swarm channel forwarder. The orchestrator's final
+    // assistant text must be empty (tool_use only) — otherwise it
+    // competes with the real result and tends to lie.
+    let lastAssistantIdx = -1;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i] as { type?: string };
+      if (entry.type === 'assistant') {
+        lastAssistantIdx = i;
+        break;
+      }
+    }
+    if (lastAssistantIdx > lastUserIdx) {
+      const lastAssistant = entries[lastAssistantIdx] as {
+        message?: { content?: unknown };
+      };
+      const blocks = Array.isArray(lastAssistant.message?.content)
+        ? (lastAssistant.message!.content as unknown[])
+        : [];
+      const textChars = blocks.reduce<number>((acc, b) => {
+        if (
+          b &&
+          typeof b === 'object' &&
+          'type' in b &&
+          (b as { type: string }).type === 'text' &&
+          'text' in b &&
+          typeof (b as { text?: unknown }).text === 'string'
+        ) {
+          return acc + (b as { text: string }).text.length;
+        }
+        return acc;
+      }, 0);
+      if (textChars > 0) {
+        log(
+          `Stop hook: dispatch happened but last assistant message has ${textChars} chars of text — blocking to prevent post-dispatch hallucinated summary`,
+        );
+        return {
+          decision: 'block' as const,
+          reason:
+            'You dispatched a subagent but then emitted user-facing text in your final assistant message. That text becomes the response sent to the user as if it were the dispatched work\'s result — but the subagent has not finished yet, so any summary you write here is a hallucination. Per OPERATIONS.md "After dispatching, stay out of the work": the subagent reports its OWN final result via the swarm channel automatically. Your only post-dispatch communication should be a brief mcp__nanoclaw__send_message acknowledgment (e.g. "Cypher dispatched, I\'ll let you know when they finish") if you haven\'t already sent one. Then end the turn with NO further text — the next assistant message must contain only tool_use (or nothing). Do not summarise what you think the subagent did or will do.',
+        };
+      }
+    }
+
+    return {};
   };
 }
 
