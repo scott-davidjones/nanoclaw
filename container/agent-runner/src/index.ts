@@ -719,9 +719,30 @@ async function runQuery(
       );
     }
   } else {
-    const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
-    if (fs.existsSync(globalClaudeMdPath)) {
-      systemPromptAppend = fs.readFileSync(globalClaudeMdPath, 'utf-8');
+    // Sub-agents get the operational rules — dispatch protocol, memory
+    // hygiene, channel formatting, etc. Canonical home is the brain repo
+    // at $BRAIN_AGENTS_DIR/OPERATIONS.md (default
+    // /workspace/brain/standards/agents/OPERATIONS.md). Fall back to the
+    // pre-migration path for backward compat during rollout; the fallback
+    // can be removed once Phase 1.5 deletes the originals from nanoclaw.
+    const brainAgentsDir =
+      process.env.BRAIN_AGENTS_DIR || '/workspace/brain/standards/agents';
+    const operationsPath = path.join(brainAgentsDir, 'OPERATIONS.md');
+    const legacyOperationsPath = '/workspace/global/CLAUDE.md';
+    if (fs.existsSync(operationsPath)) {
+      systemPromptAppend = fs.readFileSync(operationsPath, 'utf-8');
+      log(
+        `Loaded operations from ${operationsPath} (${systemPromptAppend.length} chars)`,
+      );
+    } else if (fs.existsSync(legacyOperationsPath)) {
+      systemPromptAppend = fs.readFileSync(legacyOperationsPath, 'utf-8');
+      log(
+        `Loaded operations from ${legacyOperationsPath} (legacy path) (${systemPromptAppend.length} chars)`,
+      );
+    } else {
+      log(
+        `Operations file not found at ${operationsPath} or legacy path — sub-agent will use SDK defaults only`,
+      );
     }
   }
 

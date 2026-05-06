@@ -9,12 +9,14 @@ import path from 'path';
 import {
   ANTHROPIC_BASE_URL,
   AUTO_COMPACT_WINDOW,
+  BRAIN_AGENTS_DIR,
   CONTAINER_CPU_LIMIT,
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
   CONTAINER_MEMORY_LIMIT,
   CONTAINER_TIMEOUT,
   DATA_DIR,
+  DISPATCH_MODE,
   GROUPS_DIR,
   IDLE_TIMEOUT,
   LOG_RAW_LLM_RESPONSES,
@@ -387,6 +389,17 @@ async function buildContainerArgs(
     '-e',
     `NANOCLAW_MAX_TOOL_CALLS_PER_TURN=${MAX_TOOL_CALLS_PER_TURN}`,
   );
+
+  // Subagent dispatch mode (async/sync) — read by the dispatch_* MCP tools
+  // in the agent-runner. Always passed so containers see a deterministic
+  // value regardless of host-process env state.
+  args.push('-e', `NANOCLAW_DISPATCH_MODE=${DISPATCH_MODE}`);
+
+  // Container-side path to the subagent persona directory inside the brain
+  // mount. Only meaningful when BRAIN_ROOT is also set (mount happens
+  // separately above); harmless to pass unconditionally so the agent-runner
+  // doesn't have to dual-source the default.
+  args.push('-e', `BRAIN_AGENTS_DIR=${BRAIN_AGENTS_DIR}`);
 
   // OneCLI gateway handles credential injection — containers never see real secrets.
   // The gateway intercepts HTTPS traffic and injects API keys or OAuth tokens.

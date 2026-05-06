@@ -167,19 +167,49 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
     }
   }
 
-  // Symlink + @-import wiring so the SDK loads groups/global/CLAUDE.md
-  // (operational/dispatch context) into the agent's memory tree. The
-  // symlink target is container-side (/workspace/global/CLAUDE.md);
-  // it's dangling on the host but resolves once the container mounts
-  // /workspace/global. The SDK's @-import only follows paths inside cwd,
-  // so the link itself must live in the group folder. See commit 871bfa1
-  // for the rationale (passphrase-validated).
+  // Symlink + @-import wiring so the SDK loads the operational rules into
+  // the agent's memory tree. The symlink target is container-side; it's
+  // dangling on the host but resolves once the container mounts /workspace/
+  // brain. The SDK's @-import only follows paths inside cwd, so the link
+  // itself must live in the group folder. See commit 871bfa1 for the
+  // rationale (passphrase-validated).
+  //
+  // Target migration: pre-Phase-1 builds pointed this at
+  // /workspace/global/CLAUDE.md. The operational rules now live in the
+  // brain repo at /workspace/brain/standards/agents/OPERATIONS.md. If we
+  // see a stale symlink pointing at the old target, recreate it so the
+  // SDK picks up the new file after a service restart.
   const globalLink = path.join(groupDir, '.claude-global.md');
+  const operationsTarget = '/workspace/brain/standards/agents/OPERATIONS.md';
+  let needLink = false;
   try {
-    fs.lstatSync(globalLink);
+    const stat = fs.lstatSync(globalLink);
+    if (stat.isSymbolicLink()) {
+      const currentTarget = fs.readlinkSync(globalLink);
+      if (currentTarget !== operationsTarget) {
+        fs.unlinkSync(globalLink);
+        needLink = true;
+        logger.info(
+          {
+            folder: group.folder,
+            from: currentTarget,
+            to: operationsTarget,
+          },
+          'Migrated .claude-global.md symlink to brain operations path',
+        );
+      }
+    } else {
+      // Non-symlink at that path — leave it alone, don't overwrite a real file.
+    }
   } catch {
-    fs.symlinkSync('/workspace/global/CLAUDE.md', globalLink);
-    logger.info({ folder: group.folder }, 'Created .claude-global.md symlink');
+    needLink = true;
+  }
+  if (needLink) {
+    fs.symlinkSync(operationsTarget, globalLink);
+    logger.info(
+      { folder: group.folder, target: operationsTarget },
+      'Created .claude-global.md symlink',
+    );
   }
   if (fs.existsSync(groupMdFile)) {
     const body = fs.readFileSync(groupMdFile, 'utf-8');

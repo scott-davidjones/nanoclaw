@@ -12,7 +12,9 @@ const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
   'LOG_RAW_LLM_RESPONSES',
+  'BRAIN_AGENTS_DIR',
   'MCP_MEMORY_URL',
+  'NANOCLAW_DISPATCH_MODE',
   'OLLAMA_ADMIN_TOOLS',
   'ONECLI_URL',
   'ONECLI_API_KEY',
@@ -99,6 +101,28 @@ export const ONECLI_API_KEY =
   process.env.ONECLI_API_KEY || envConfig.ONECLI_API_KEY;
 export const MCP_MEMORY_URL =
   process.env.MCP_MEMORY_URL || envConfig.MCP_MEMORY_URL || '';
+
+// Subagent dispatch mode — controls how dispatch_cypher / dispatch_vector /
+// etc. behave. 'async' (default) writes an IPC dispatch task and returns
+// immediately so the orchestrator stays free for other queries; the host
+// spawns a separate container for the subagent. 'sync' runs a nested SDK
+// query() inline — orchestrator blocks until the subagent finishes.
+// Override via NANOCLAW_DISPATCH_MODE in the systemd unit if async causes
+// problems (e.g. flaky completion notifications).
+export const DISPATCH_MODE: 'async' | 'sync' =
+  (process.env.NANOCLAW_DISPATCH_MODE || envConfig.NANOCLAW_DISPATCH_MODE) ===
+  'sync'
+    ? 'sync'
+    : 'async';
+
+// Container-side path to the subagent persona directory in the brain mount.
+// dispatch_* MCP tools read <agent>.md, BASE_AGENTS.md, BASE_SOUL.md from
+// here. Defaults to the canonical brain-standards layout; override only if
+// the brain repo's directory shape changes.
+export const BRAIN_AGENTS_DIR =
+  process.env.BRAIN_AGENTS_DIR ||
+  envConfig.BRAIN_AGENTS_DIR ||
+  '/workspace/brain/standards/agents';
 export const MAX_MESSAGES_PER_PROMPT = Math.max(
   1,
   parseInt(process.env.MAX_MESSAGES_PER_PROMPT || '10', 10) || 10,
