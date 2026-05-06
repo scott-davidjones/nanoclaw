@@ -150,11 +150,12 @@ The tools, all scoped by a `project` parameter:
 - `mcp__memory__decisions(project)` — list all decisions for a project. Call before starting any task to avoid contradicting prior ones.
 - `mcp__memory__task_get(project)` / `task_update(project, ...)` — current task state per project, for "where did I leave off" continuity.
 
-**Project naming convention:**
+**Project naming convention** — memory is cross-group. Do **not** scope by channel / group folder. A thing you learned on Telegram should be visible from WhatsApp, Slack, or anywhere else. Pick the project name based on the *subject* of the memory:
 
-- Use your group folder name as the `project` for conversational context (e.g. `telegram_main`, `whatsapp_xyz`).
-- Use the project `user` for facts about Scott himself that span all groups (his preferences, his contacts, his work patterns, things he wants you to always know).
-- Use the project name of an in-flight piece of work for that work specifically (e.g. `home-assistant-skill`, `pipeline-<slug>`).
+- For a specific piece of work (a skill, a feature, a debugging session, a pipeline run): `<slug>-<YYYYMMDD>` — e.g. `home-assistant-skill-20260506`, `pipeline-fix-deploy-20260506`. Slug + date keeps later searches findable and avoids collisions if the same slug is reused months later.
+- For facts about Scott himself (preferences, contacts, work patterns, anything he wants you to always know): the project `user`.
+- For long-lived systems or codebases: their stable name — e.g. `nanoclaw`, `casa`, `tpp`, `artemis`.
+- Channel-specific behaviour (Slack formatting, Telegram quirks) is not memory — it lives in this CLAUDE.md.
 
 **When to call:**
 
