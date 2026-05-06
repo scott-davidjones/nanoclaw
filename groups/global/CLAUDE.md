@@ -73,7 +73,7 @@ If a task needs follow-up, exactly one of these must be true before you end the 
 
 1. **You stayed alive and finished it.** `Task` blocks until the subagent returns. For a pipeline (Cypher → Vector → Prism → Sentinel), chain the dispatches sequentially in the *same* turn — do not write a status message and end the turn between stages. Send progress to the user via `mcp__nanoclaw__send_message` between stages so they see motion, but keep dispatching.
 
-2. **You called `schedule_task`** with a concrete prompt that re-enters the work. A scheduled task actually fires. "I'll check back" does not.
+2. **You called `schedule_task`** with a concrete prompt that re-enters the work, *and* you wrote a memory file at `/workspace/group/scheduled/<slug>.md` capturing the context the future-you will need (see *Persist context to memory before scheduling* under Task Scripts). A scheduled task fires; "I'll check back" does not. A scheduled task without a memory file fires into a vacuum.
 
 3. **You handed the work back to the user explicitly** — what they need to do, what input you need, what you'll do once they reply. The next turn is theirs.
 
@@ -253,6 +253,16 @@ If LiteLLM returns an "Unknown model" error on a Task call, the alias is missing
 - **Send a progress summary between each stage** so the user knows the pipeline is advancing:
   e.g. _"[ProjectName] Cypher completed — PR opened. Spawning Vector for testing..."_
 
+### When a subagent goes silent
+
+`Task` should normally return when a subagent finishes, but in practice you'll see three failure modes — handle each explicitly, never silently:
+
+- **Empty / very short return without a "done" signal.** The subagent crashed early or the model hallucinated a quick exit. Do not treat this as success. Re-dispatch with the same prompt and a note about the previous failure (*"Previous attempt returned without a completion summary; please retry and confirm."*).
+- **Long stream of work without a clean final summary.** The subagent did the work but didn't close cleanly. Check the latest output for evidence — git pushes, file writes, opened PRs — decide whether the work actually landed, and message the user with what you can see. Do not invent a result.
+- **Silence beyond ~5 minutes of expected activity.** Send a follow-up via `SendMessage` to that subagent with a *specific* question, e.g. *"Status check — what stage are you on, and have you pushed yet?"* Wait one more cycle. If still silent after the follow-up, treat the dispatch as failed: notify the user via `mcp__nanoclaw__send_message` with a summary of what you saw, and stop. Do not silently keep waiting.
+
+Never claim a subagent is "still working" unless you have just observed output from it within the same turn. If the only evidence is "I dispatched it earlier," it may have failed silently — verify before reporting.
+
 ### When to use the dev team vs. ad-hoc agents
 
 - **Use the dev team** for: code changes, bug fixes, new features, PRs, anything touching a codebase with tests and review
@@ -278,6 +288,29 @@ For any recurring task, use `schedule_task`. Frequent agent invocations — espe
 3. Script prints JSON to stdout: `{ "wakeAgent": true/false, "data": {...} }`
 4. If `wakeAgent: false` — nothing happens, task waits for next run
 5. If `wakeAgent: true` — you wake up and receive the script's data + prompt
+
+### Persist context to memory before scheduling (CRITICAL)
+
+A scheduled task fires in a fresh container with no recollection of why it was scheduled. The bare `prompt` you pass to `schedule_task` is all the future-you gets — and prompts alone are brittle. Pair every meaningful schedule with a memory file.
+
+**Before calling `schedule_task`:**
+
+1. Write a markdown file at `/workspace/group/scheduled/<slug>.md` containing:
+   - **What** — the scheduled action's purpose, in one sentence.
+   - **Context** — the user's request, what's been done, what's still pending.
+   - **Success criteria** — how to tell whether the action succeeded.
+   - **Next step** — what to do based on the check result (dispatch which agent, send what message, schedule what follow-up).
+2. Use a unique, descriptive slug (e.g. `pipeline-ha-skill-2026-05-06-1015`).
+3. In the scheduled task's `prompt`, lead with the file path explicitly: *"First read `/workspace/group/scheduled/<slug>.md` for context, then proceed."*
+
+**When a scheduled task fires (the future-you):**
+
+1. **First action: read the referenced file** with the Read tool. Do not guess what you were scheduled for — the file is the truth. If the prompt mentions a slug but the file is missing, surface that to the user and stop; do not improvise.
+2. Act on the "next step" field.
+3. Append a result entry at the bottom of the file (`## Run YYYY-MM-DD HH:MM — <one-line result>`) so the next fire sees fresh state and the user has a trail.
+4. If the task was one-shot and is now complete, delete the file. If recurring, leave it for the next fire.
+
+A `schedule_task` call without a companion memory file is brittle by design — it will eventually fire into a container that has no idea what it is for, and the user will get nothing. Don't ship those.
 
 ### Always test your script first
 
