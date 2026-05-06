@@ -566,11 +566,29 @@ async function runQuery(
   let lastAssistantInputTokens: number | undefined;
   const logRawLlm = process.env.LOG_RAW_LLM_RESPONSES === '1';
 
-  // Load global CLAUDE.md as additional system context (shared across all groups)
-  const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
-  let globalClaudeMd: string | undefined;
-  if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
-    globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
+  // System-prompt append. Two mutually-exclusive sources:
+  //   - Main agent: brain/standards/ARTEMIS.md persona (orchestrator voice).
+  //     Deliberately excludes brain/CLAUDE.md — those are hard engineering
+  //     standards for sub-agents (Cypher/Vector/etc), not Artemis.
+  //   - Non-main agents: groups/global/CLAUDE.md shared context.
+  let systemPromptAppend: string | undefined;
+  if (containerInput.isMain) {
+    const artemisPersonaPath = '/workspace/brain/standards/ARTEMIS.md';
+    if (fs.existsSync(artemisPersonaPath)) {
+      systemPromptAppend = fs.readFileSync(artemisPersonaPath, 'utf-8');
+      log(
+        `Loaded Artemis persona from ${artemisPersonaPath} (${systemPromptAppend.length} chars)`,
+      );
+    } else {
+      log(
+        `Artemis persona not found at ${artemisPersonaPath} — main agent will use SDK defaults only`,
+      );
+    }
+  } else {
+    const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
+    if (fs.existsSync(globalClaudeMdPath)) {
+      systemPromptAppend = fs.readFileSync(globalClaudeMdPath, 'utf-8');
+    }
   }
 
   // Discover additional directories mounted at /workspace/extra/*
@@ -596,11 +614,11 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
-      systemPrompt: globalClaudeMd
+      systemPrompt: systemPromptAppend
         ? {
             type: 'preset' as const,
             preset: 'claude_code' as const,
-            append: globalClaudeMd,
+            append: systemPromptAppend,
           }
         : undefined,
       allowedTools: [
