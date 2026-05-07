@@ -532,7 +532,14 @@ Use available_groups.json to find the JID for a group. The folder name must be c
  * Pipeline=true (orchestrator-driven Cypher → Vector → Sentinel run): on
  * subagent completion the host sends a [DISPATCH_RESULT] follow-up to the
  * originating chat so the orchestrator can advance to the next stage.
- * Default pipeline=false — fire-and-forget.
+ *
+ * Default is `true` — most dispatches are pipeline stages and the model
+ * has historically forgotten to set the flag, leaving Vector and Sentinel
+ * never running. Opt-out (`pipeline: false`) is reserved for one-off
+ * lookups (research questions to a teammate, ad-hoc status checks) where
+ * there's no follow-up stage. A PreToolUse rail in createDispatchPipelineGuardHook
+ * also blocks dev-shaped requests dispatched with pipeline=false to catch
+ * the residual misuse path.
  */
 type SubagentName = 'cypher' | 'vector' | 'prism' | 'sentinel' | 'triage';
 
@@ -551,7 +558,7 @@ async function dispatchSubagent(
     agent,
     task_description: args.task_description,
     context_files: args.context_files ?? [],
-    pipeline: args.pipeline === true,
+    pipeline: args.pipeline !== false, // default true — see docstring
     originating_group: groupFolder,
     chat_jid: chatJid,
     timestamp: new Date().toISOString(),
@@ -586,7 +593,7 @@ const dispatchSchema = {
     .boolean()
     .optional()
     .describe(
-      'Set true if this dispatch is part of an explicit pipeline run (Cypher → Vector → Sentinel etc.) and you want to be woken when the subagent completes so you can advance the next stage. Default false: fire-and-forget, the subagent reports directly to the user.',
+      'Default `true`: this dispatch is a pipeline stage; the host wakes the orchestrator with `[DISPATCH_RESULT] <agent> completed: <text>` when the subagent exits so the orchestrator can advance the chain (Cypher → Vector → Sentinel). Pass `false` ONLY for genuine one-off lookups (research, status checks) where there is no follow-up stage; the host enforces this — dev-shaped requests dispatched with `pipeline: false` are denied at PreToolUse.',
     ),
 };
 

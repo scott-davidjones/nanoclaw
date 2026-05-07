@@ -409,6 +409,86 @@ function createOrchestratorSendMessageGuardHook(
 }
 
 /**
+ * Orchestrator-only PreToolUse guard: dev-shaped dispatches must run as
+ * pipeline stages (`pipeline: true`).
+ *
+ * The MCP dispatch tool now defaults to `pipeline: true` (see
+ * ipc-mcp-stdio.ts), so the model only has to drop the flag to bypass the
+ * pipeline. Empirically observed pre-default: qwen3-coder-next dispatched
+ * Cypher with `pipeline: false`, Cypher ran solo, Vector and Sentinel
+ * never fired, and a code change landed without the gating chain ever
+ * running.
+ *
+ * This rail is the backstop. PreToolUse on `mcp__nanoclaw__dispatch_*`,
+ * fires only when isMain. Reads the most recent user message from the
+ * transcript. If the user request is dev-shaped (per `isDevRequest`)
+ * AND `tool_input.pipeline === false` (explicitly opted out), denies
+ * with a directive to re-call without the false flag (or with `true`).
+ * Pipeline-omitted (undefined) or `true` is allowed — the host will
+ * promote omitted to `true` via the schema default.
+ *
+ * Non-dev requests (research, status, lookups) can still legitimately
+ * use `pipeline: false` — those don't trigger this rail.
+ */
+function createDispatchPipelineGuardHook(isMain: boolean): HookCallback {
+  return async (input) => {
+    if (!isMain) return {};
+    const hook = input as PreToolUseHookInput;
+    if (
+      !hook.tool_name?.startsWith('mcp__nanoclaw__dispatch_')
+    ) {
+      return {};
+    }
+    const toolInput = hook.tool_input as Record<string, unknown> | undefined;
+    if (toolInput?.pipeline !== false) return {};
+
+    // pipeline === false explicitly — only allowed for non-dev requests.
+    const transcriptPath = (hook as PreToolUseHookInput).transcript_path;
+    if (!transcriptPath || !fs.existsSync(transcriptPath)) return {};
+    let lastUserText = '';
+    try {
+      const content = fs.readFileSync(transcriptPath, 'utf-8');
+      const lines = content
+        .split('\n')
+        .filter((l) => l.trim())
+        .map((l) => {
+          try {
+            return JSON.parse(l);
+          } catch {
+            return null;
+          }
+        })
+        .filter((e): e is Record<string, unknown> => !!e);
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const e = lines[i] as { type?: string; message?: { content?: unknown } };
+        if (e.type === 'user' && e.message?.content) {
+          const t = extractUserText(e.message.content);
+          if (t) {
+            lastUserText = t;
+            break;
+          }
+        }
+      }
+    } catch {
+      return {};
+    }
+    if (!lastUserText || !isDevRequest(lastUserText)) return {};
+
+    log(
+      `PreToolUse DENY: dispatch ${hook.tool_name} with pipeline=false against dev-shaped request — backstop firing. user="${lastUserText.slice(0, 120)}"`,
+    );
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse' as const,
+        permissionDecision: 'deny' as const,
+        permissionDecisionReason:
+          'You called this dispatch with `pipeline: false` against a dev-shaped user request (build / fix / refactor / create / implement / port etc.). That makes the dispatch fire-and-forget — Vector and Sentinel will never run, and the change lands without the gating chain. Per OPERATIONS.md, dev work MUST run through the pipeline. Re-call the same dispatch tool either omitting `pipeline` (the default is `true`) or passing `pipeline: true` explicitly. `pipeline: false` is only for one-off lookups (research questions, status checks) where there is no follow-up stage.',
+      },
+    };
+  };
+}
+
+/**
  * Archive the full transcript to conversations/ before compaction.
  */
 function createPreCompactHook(assistantName?: string): HookCallback {
@@ -1186,6 +1266,7 @@ async function runQuery(
                 containerInput.isMain,
                 () => dispatchedThisTurn,
               ),
+              createDispatchPipelineGuardHook(containerInput.isMain),
             ],
           },
         ],
