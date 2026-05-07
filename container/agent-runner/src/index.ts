@@ -650,13 +650,30 @@ function createStopHook(isMain: boolean): HookCallback {
       }
     }
     if (lastUserIdx === -1) return {};
-    if (!isDevRequest(lastUserText)) return {};
 
-    // Find any dispatch tool_use after the last user message. Either the
-    // SDK's native `Task` tool or one of our `dispatch_*` MCP tools (these
-    // collapse the multi-step Task protocol into a single named call —
-    // see container/agent-runner/src/ipc-mcp-stdio.ts) counts as a valid
-    // dispatch. The MCP tool names arrive prefixed (`mcp__nanoclaw__...`).
+    // Pipeline-advance enforcement. When the host wakes the orchestrator
+    // with a `[DISPATCH_RESULT] <agent> completed: ...` follow-up, the
+    // orchestrator MUST either dispatch the next pipeline stage or
+    // explicitly terminate with a final user-facing send_message. Without
+    // this rail, qwen3-coder-next reads the result, emits a brief
+    // <internal> note, and ends the turn — Vector and Sentinel never run.
+    //
+    // Pattern: [DISPATCH_RESULT] <agent> (completed|FAILED) (id=...)
+    //   cypher completed   → require Vector (or Prism for UI work)
+    //   vector completed   → require Sentinel
+    //   prism completed    → require Sentinel
+    //   sentinel completed → terminal; require send_message reporting completion to user
+    //   triage completed   → require Cypher (the surgical fix)
+    //   any FAILED         → require Triage OR a user-facing failure message
+    //
+    // isDevRequest doesn't catch [DISPATCH_RESULT] because the patterns
+    // require imperative-tense ("create me a skill") and the result text
+    // is past-tense ("Created the skill"). So we branch on the prefix
+    // before the isDevRequest check.
+    const dispatchResultMatch = lastUserText.match(
+      /^\[DISPATCH_RESULT\]\s+(cypher|vector|prism|sentinel|triage)\s+(completed|FAILED)/i,
+    );
+
     const isDispatchToolName = (name: string): boolean =>
       name === 'Task' ||
       name === 'mcp__nanoclaw__dispatch_cypher' ||
@@ -664,6 +681,84 @@ function createStopHook(isMain: boolean): HookCallback {
       name === 'mcp__nanoclaw__dispatch_prism' ||
       name === 'mcp__nanoclaw__dispatch_sentinel' ||
       name === 'mcp__nanoclaw__dispatch_triage';
+
+    if (dispatchResultMatch) {
+      const completedAgent = dispatchResultMatch[1].toLowerCase();
+      const status = dispatchResultMatch[2].toLowerCase();
+
+      // What dispatch (or send_message) is acceptable?
+      let requiredNext: string[] | null;
+      let isTerminal = false;
+      if (status === 'failed') {
+        requiredNext = ['mcp__nanoclaw__dispatch_triage'];
+      } else {
+        switch (completedAgent) {
+          case 'cypher':
+            requiredNext = [
+              'mcp__nanoclaw__dispatch_vector',
+              'mcp__nanoclaw__dispatch_prism',
+            ];
+            break;
+          case 'vector':
+          case 'prism':
+            requiredNext = ['mcp__nanoclaw__dispatch_sentinel'];
+            break;
+          case 'triage':
+            requiredNext = ['mcp__nanoclaw__dispatch_cypher'];
+            break;
+          case 'sentinel':
+          default:
+            // Terminal stage. Require a user-facing send_message reporting
+            // completion (or just allow turn end — the host already has
+            // the result).
+            requiredNext = null;
+            isTerminal = true;
+            break;
+        }
+      }
+
+      // Did the orchestrator do the right thing this turn?
+      const sliceAfter = entries.slice(lastUserIdx + 1);
+      const dispatchedNext = sliceAfter.some((e) => {
+        const entry = e as { type?: string; message?: { content?: unknown } };
+        if (entry.type !== 'assistant') return false;
+        if (!Array.isArray(entry.message?.content)) return false;
+        return entry.message.content.some((b: unknown) => {
+          if (!b || typeof b !== 'object') return false;
+          if ((b as { type?: string }).type !== 'tool_use') return false;
+          const name = (b as { name?: string }).name || '';
+          return requiredNext ? requiredNext.includes(name) : false;
+        });
+      });
+      if (isTerminal) {
+        // Sentinel completed — turn may end. We don't block.
+        return {};
+      }
+      if (dispatchedNext) {
+        // Pipeline advanced correctly.
+        return {};
+      }
+      if (stopInput.stop_hook_active) {
+        // Already nudged once and the model still hasn't dispatched —
+        // pass through to avoid infinite loops. The user will see what
+        // came back and can re-prompt.
+        return {};
+      }
+      const required = (requiredNext || []).map((n) => n.replace('mcp__nanoclaw__', '')).join(' or ');
+      log(
+        `Stop hook: pipeline-advance not satisfied — ${completedAgent} ${status}, no ${required} dispatch this turn. Blocking.`,
+      );
+      const guidance =
+        status === 'failed'
+          ? `The previous stage (${completedAgent}) FAILED. Per OPERATIONS.md, dispatch Triage to classify the failure and schedule a surgical fix. Either call ${required} now, or — if you've decided to abort the pipeline — call mcp__nanoclaw__send_message with a clear failure summary and reason for the user, then end the turn.`
+          : `The previous stage (${completedAgent}) completed successfully and per OPERATIONS.md the pipeline must advance. Dispatch the next stage NOW: ${required}. Pass the [DISPATCH_RESULT] context (the previous stage's output) so the next stage knows what was produced. Do not end the turn with text only — that drops the pipeline and the user gets no Vector/Sentinel gate.`;
+      return {
+        decision: 'block' as const,
+        reason: guidance,
+      };
+    }
+
+    if (!isDevRequest(lastUserText)) return {};
     const dispatched = entries.slice(lastUserIdx + 1).some((e) => {
       const entry = e as {
         type?: string;
