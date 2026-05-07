@@ -409,6 +409,112 @@ function createOrchestratorSendMessageGuardHook(
 }
 
 /**
+ * Orchestrator-only PreToolUse: deny Claude Agent SDK teammate / task-
+ * tracking tools that don't apply to NanoClaw's dispatch model.
+ *
+ * Empirically observed 2026-05-07 13:47: orchestrator dispatched Cypher
+ * via mcp__nanoclaw__dispatch_cypher, then immediately tried to poll
+ * the result with `TaskOutput(task_id="dispatch-...")`. That's a Claude
+ * Agent SDK tool for the SDK's native Task tool — it has no idea about
+ * NanoClaw dispatch IDs. It returned "No task found", the model
+ * concluded the dispatch hadn't worked, and re-dispatched Cypher. Three
+ * times. Three parallel Cyphers, all racing to push `cypher/json-schema-
+ * validator`.
+ *
+ * NanoClaw's dispatch flow is:
+ *   1. dispatch_<agent> returns immediately with `(id=...)` ack
+ *   2. Orchestrator ENDS the turn
+ *   3. Host wakes orchestrator with `[DISPATCH_RESULT] <agent> ...`
+ *      when the subagent exits
+ *
+ * There is no in-turn polling. Deny these SDK tools so the model can't
+ * fall into the polling loop. Subagents (isMain=false) might still want
+ * some of them for their own work, so the rail is orchestrator-only.
+ */
+const FORBIDDEN_ORCHESTRATOR_SDK_TOOLS = new Set([
+  // SDK Task-tool task tracking (not NanoClaw dispatches)
+  'TaskOutput',
+  'TaskStop',
+  'TaskGet',
+  'TaskList',
+  'TaskCreate',
+  'TaskUpdate',
+  // SDK teammate messaging (not mcp__nanoclaw__send_message)
+  'SendMessage',
+  // SDK team / agent abstractions
+  'TeamCreate',
+  'TeamSpawn',
+  'TeamGet',
+  'TeamList',
+  'TeamUpdate',
+  'TeamDelete',
+  // Other SDK power tools the orchestrator shouldn't drive directly
+  'Monitor',
+  'RemoteTrigger',
+  'CronCreate',
+  'CronDelete',
+  'CronList',
+  'PushNotification',
+]);
+
+function createOrchestratorSdkToolGuardHook(isMain: boolean): HookCallback {
+  return async (input) => {
+    if (!isMain) return {};
+    const hook = input as PreToolUseHookInput;
+    if (!FORBIDDEN_ORCHESTRATOR_SDK_TOOLS.has(hook.tool_name)) return {};
+    log(
+      `PreToolUse DENY: orchestrator called SDK tool ${hook.tool_name} — not applicable to NanoClaw dispatches`,
+    );
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse' as const,
+        permissionDecision: 'deny' as const,
+        permissionDecisionReason:
+          `\`${hook.tool_name}\` is a Claude Agent SDK tool that does not apply to NanoClaw's dispatch model. NanoClaw subagents are dispatched via \`mcp__nanoclaw__dispatch_<agent>\`, which returns immediately with \`(id=...)\` and runs asynchronously. There is NO in-turn polling — the host wakes you with a \`[DISPATCH_RESULT] <agent> completed: <text>\` follow-up when the subagent exits. After calling a dispatch tool, your only options this turn are: (a) one brief \`mcp__nanoclaw__send_message\` acknowledgment, then (b) END the turn. Do not call SDK Task* / Team* / SendMessage / Monitor tools — they don't know about NanoClaw dispatches. If you want to send a message to the user, use \`mcp__nanoclaw__send_message\` (note the \`mcp__\` prefix).`,
+      },
+    };
+  };
+}
+
+/**
+ * Orchestrator-only PreToolUse: deny a SECOND dispatch_* in the same
+ * turn after one has already fired.
+ *
+ * NanoClaw's pipeline model expects exactly ONE dispatch per turn. The
+ * orchestrator dispatches, ends the turn, the host wakes it with the
+ * result via a fresh turn, the orchestrator dispatches the next stage,
+ * and so on. Multiple dispatches in the same turn either spawn parallel
+ * subagents (race condition risks: branch collisions, duplicate PRs) or
+ * are the model retrying because it didn't realise the first dispatch
+ * worked.
+ *
+ * This rail catches the latter — same-turn re-dispatch. The model gets
+ * told its first dispatch already fired and to end the turn.
+ */
+function createOrchestratorDoubleDispatchGuardHook(
+  isMain: boolean,
+  hasDispatchedThisTurn: () => boolean,
+): HookCallback {
+  return async (input) => {
+    if (!isMain) return {};
+    const hook = input as PreToolUseHookInput;
+    if (!hook.tool_name?.startsWith('mcp__nanoclaw__dispatch_')) return {};
+    if (!hasDispatchedThisTurn()) return {};
+    log(
+      `PreToolUse DENY: orchestrator second ${hook.tool_name} in same turn — must end turn after first dispatch`,
+    );
+    return {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse' as const,
+        permissionDecision: 'deny' as const,
+        permissionDecisionReason:
+          'You already dispatched a subagent in this turn. NanoClaw expects exactly ONE dispatch per turn — the dispatch tool returned `(id=...)` immediately, and the host will wake you with a `[DISPATCH_RESULT]` follow-up when the subagent exits. Do NOT dispatch again in this turn (it would spawn a parallel subagent and race the first one for the same branch/PR). End the turn now: emit nothing further (or one brief `mcp__nanoclaw__send_message` acknowledgment if you haven\'t already sent one) and stop. The next turn will arrive automatically with the subagent\'s result.',
+      },
+    };
+  };
+}
+
+/**
  * Orchestrator-only PreToolUse guard: dev-shaped dispatches must run as
  * pipeline stages (`pipeline: true`).
  *
@@ -548,6 +654,7 @@ function createPreCompactHook(assistantName?: string): HookCallback {
 const DEV_REQUEST_PATTERNS: RegExp[] = [
   /\bcreate\s+(?:me\s+)?(?:a|an|the)?\s*\w*\s*skill\b/i,
   /\badd\s+(?:the\s+|an?\s+)?ability\s+to\b/i,
+  /\badd\s+(?:me\s+)?(?:a|an|the)\s+\w*\s*(?:script|tool|plugin|module|feature|skill|command|hook|validator|reader|parser|extractor|integration)\b/i,
   /\bbuild\s+(?:me\s+)?(?:a|an|the)\b/i,
   /\bmake\s+(?:me\s+)?(?:a|an|the)\s+(?:script|tool|plugin|module|feature|skill|command|hook)\b/i,
   /\bimplement\s+\w/i,
@@ -1362,6 +1469,11 @@ async function runQuery(
                 () => dispatchedThisTurn,
               ),
               createDispatchPipelineGuardHook(containerInput.isMain),
+              createOrchestratorSdkToolGuardHook(containerInput.isMain),
+              createOrchestratorDoubleDispatchGuardHook(
+                containerInput.isMain,
+                () => dispatchedThisTurn,
+              ),
             ],
           },
         ],
