@@ -344,6 +344,71 @@ function createSubagentWriteGuardHook(): HookCallback {
 }
 
 /**
+ * Orchestrator-only PreToolUse guard for `mcp__nanoclaw__send_message`.
+ *
+ * After the orchestrator has dispatched a subagent in this turn, send_message
+ * must only be a brief dispatch acknowledgment ("Cypher dispatched, I'll let
+ * you know when they finish") — NOT a completion claim. Empirically observed:
+ * Gemma 4 / qwen3-coder-next repeatedly hallucinate "PDF skill is ready, PR
+ * #1 opened, Cypher's done" send_message calls before the subagent has
+ * actually finished. The subagent reports its OWN final result via the swarm
+ * channel forwarder when it exits; any pre-completion claim from the
+ * orchestrator is a lie that reaches the user.
+ *
+ * The Stop hook's post-dispatch text guard catches the same hallucination in
+ * final assistant text, but send_message is a tool_use (not text) so it
+ * routes to the user immediately, bypassing that guard. Hence this rail.
+ *
+ * Heuristic match on completion-claim phrasing — false-positive rate is the
+ * trade. The deny reason instructs the model to retry with a plain
+ * acknowledgment, so a false positive costs one extra round-trip, not a hard
+ * failure.
+ */
+const COMPLETION_CLAIM_PATTERNS: RegExp[] = [
+  /\b(?:cypher|vector|prism|sentinel|triage|the\s+(?:sub)?agent)\s+(?:has\s+|just\s+)?(?:completed|finished|landed|done|wrapped\s+up|delivered|shipped)\b/i,
+  /\b(?:i(?:'ve|\s+have)|we(?:'ve|\s+have))\s+(?:created|built|added|wrote|written|made|opened|landed|merged|implemented|fixed|finished|deployed|shipped|pushed|published)\b/i,
+  /\b(?:created|opened|landed|merged|pushed)\s+(?:a\s+|the\s+)?(?:pr|pull[- ]request|branch|skill)\b/i,
+  /\b(?:the\s+)?skill\s+(?:is\s+)?(?:ready|done|created|added|landed|live|deployed|now\s+available|in\s+place|complete)\b/i,
+  /\b(?:ready\s+(?:for|to)\s+use|now\s+(?:available|live|deployed)|all\s+done|task\s+complete|work(?:'s|s)?\s+done)\b/i,
+  /\bPR\s*#\s*\d+/i,
+  /\b(?:standards\/skills|brain\/standards)\b/i,
+];
+
+function createOrchestratorSendMessageGuardHook(
+  isMain: boolean,
+  hasDispatchedThisTurn: () => boolean,
+): HookCallback {
+  return async (input) => {
+    if (!isMain) return {};
+    const hook = input as PreToolUseHookInput;
+    if (hook.tool_name !== 'mcp__nanoclaw__send_message') return {};
+    if (!hasDispatchedThisTurn()) return {};
+
+    const toolInput = hook.tool_input as Record<string, unknown> | undefined;
+    const text =
+      typeof toolInput?.text === 'string' ? (toolInput.text as string) : '';
+    if (!text) return {};
+
+    for (const pat of COMPLETION_CLAIM_PATTERNS) {
+      if (pat.test(text)) {
+        log(
+          `PreToolUse DENY: orchestrator send_message after dispatch contains completion claim: pattern=${pat} text="${text.slice(0, 200)}"`,
+        );
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse' as const,
+            permissionDecision: 'deny' as const,
+            permissionDecisionReason:
+              'You dispatched a subagent in this turn and now you\'re trying to send a message that claims the work is done or names artifacts (PR #, branch, skill landed). The subagent has NOT finished — its real result arrives via the swarm channel automatically when it exits, and the host wakes you with a [DISPATCH_RESULT] follow-up to advance the pipeline. Per OPERATIONS.md "After dispatching, stay out of the work": send_message after a dispatch must ONLY be a brief dispatch acknowledgment (e.g. "Cypher dispatched, I\'ll let you know when they finish") with no specifics about what was done, no PR numbers, no branch names, no claim of completion. Either retry with a plain acknowledgment, or skip the send_message entirely if one was already sent. Never fabricate the subagent\'s output.',
+          },
+        };
+      }
+    }
+    return {};
+  };
+}
+
+/**
  * Archive the full transcript to conversations/ before compaction.
  */
 function createPreCompactHook(assistantName?: string): HookCallback {
@@ -1117,6 +1182,10 @@ async function runQuery(
             hooks: [
               createPreToolUseHook(skillConstraints, () => activeSkillName),
               createSubagentWriteGuardHook(),
+              createOrchestratorSendMessageGuardHook(
+                containerInput.isMain,
+                () => dispatchedThisTurn,
+              ),
             ],
           },
         ],
