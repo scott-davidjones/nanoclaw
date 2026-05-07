@@ -456,6 +456,14 @@ function createStopHook(isMain: boolean): HookCallback {
   return async (input) => {
     if (!isMain) return {};
     const stopInput = input as StopHookInput;
+    // Diagnostic log on every fire — without this we can't tell whether
+    // the hook isn't being called or is being called and silently
+    // returning {}. Empirically observed: orchestrator emitted text-only
+    // response to a dev request, no Stop hook log appeared, turn ended
+    // with hallucinated text reaching the user.
+    log(
+      `Stop hook fired: stop_hook_active=${stopInput.stop_hook_active} transcript_path=${stopInput.transcript_path || '<none>'}`,
+    );
     // Note: don't short-circuit on stop_hook_active here — the post-dispatch
     // text check below needs to run on the second invocation (the one that
     // fires after the pre-dispatch block has already forced a dispatch).
