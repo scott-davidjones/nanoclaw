@@ -91,12 +91,20 @@ export interface DispatchDeps {
    */
   resolveGroup: (folder: string) => RegisteredGroup | null;
   /**
-   * Send a synthetic follow-up message to the originating group when
-   * `pipeline=true`. Should write to `data/ipc/<group>/input/` so an
-   * active orchestrator container picks it up via stdin pipe.
-   * Returns true if the message was queued, false if no active container.
+   * Wake the originating orchestrator with a synthetic follow-up message
+   * when `pipeline=true`. Implementation should:
+   *   1. If an orchestrator container is active for this group, pipe the
+   *      message into its stdin via `data/ipc/<group>/input/` so the
+   *      live turn picks it up mid-flight.
+   *   2. Otherwise spawn a fresh orchestrator turn with the message as
+   *      its prompt — same way scheduled tasks fire — so the
+   *      orchestrator advances the pipeline (Cypher done → dispatch
+   *      Vector, etc.) without needing the user to manually re-prompt.
+   *
+   * Returns true if the message was delivered (either piped or a fresh
+   * turn was spawned). Returns false on lookup/setup failure.
    */
-  pipeFollowUp?: (groupJid: string, text: string) => boolean;
+  pipeFollowUp?: (groupJid: string, text: string) => Promise<boolean>;
 }
 
 /**
@@ -343,12 +351,7 @@ export async function processDispatchIpc(
   // in their normal subagent-activity channel.
   if (!task.pipeline) {
     try {
-      const messagesDir = path.join(
-        DATA_DIR,
-        'ipc',
-        group.folder,
-        'messages',
-      );
+      const messagesDir = path.join(DATA_DIR, 'ipc', group.folder, 'messages');
       fs.mkdirSync(messagesDir, { recursive: true });
       const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`;
       const text =
@@ -385,22 +388,27 @@ export async function processDispatchIpc(
     }
   }
 
-  // Pipeline mode: notify the originating orchestrator so it can advance
-  // to the next stage. Currently best-effort — pipeFollowUp returns false
-  // if the orchestrator's container isn't active. Full wake-up (spawn
-  // a fresh orchestrator turn when no container is active) is a Phase 2.5
-  // task; for now if the orchestrator's gone, the result lands in the
-  // log + the user already saw the subagent's send_message stream.
+  // Pipeline mode: wake the originating orchestrator so it can advance
+  // to the next stage. pipeFollowUp tries the active container first,
+  // then falls back to spawning a fresh orchestrator turn — see the
+  // wireup in src/index.ts.
   if (task.pipeline && deps.pipeFollowUp) {
     const summary =
       result.status === 'success'
         ? `[DISPATCH_RESULT] ${task.agent} completed (id=${task.dispatch_id})\n\n${result.result || '(no final text emitted)'}`
         : `[DISPATCH_RESULT] ${task.agent} FAILED (id=${task.dispatch_id})\n\n${result.error || 'unknown error'}`;
-    const queued = deps.pipeFollowUp(task.chat_jid, summary);
-    if (!queued) {
-      logger.warn(
-        { dispatch_id: task.dispatch_id, group: group.name },
-        'Pipeline follow-up not queued — orchestrator container not active. TODO: spawn a fresh turn so the pipeline advances.',
+    try {
+      const delivered = await deps.pipeFollowUp(task.chat_jid, summary);
+      if (!delivered) {
+        logger.warn(
+          { dispatch_id: task.dispatch_id, group: group.name },
+          'Pipeline follow-up not delivered — orchestrator unreachable',
+        );
+      }
+    } catch (err) {
+      logger.error(
+        { dispatch_id: task.dispatch_id, group: group.name, err },
+        'Pipeline follow-up errored',
       );
     }
   }

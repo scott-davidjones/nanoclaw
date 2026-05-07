@@ -224,7 +224,7 @@ describe('processDispatchIpc', () => {
     return {
       brainAgentsHostDir: tmpDir,
       resolveGroup: vi.fn(() => fakeGroup),
-      pipeFollowUp: vi.fn(() => true),
+      pipeFollowUp: vi.fn().mockResolvedValue(true),
       ...overrides,
     };
   }

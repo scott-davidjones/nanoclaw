@@ -946,8 +946,65 @@ async function main(): Promise<void> {
         }
         return null;
       },
-      pipeFollowUp: (groupJid: string, text: string) =>
-        queue.sendMessage(groupJid, text),
+      pipeFollowUp: async (groupJid: string, text: string) => {
+        // First try to deliver to the orchestrator's live container via
+        // its stdin pipe — that's the cheapest path when the orchestrator
+        // is still mid-turn.
+        if (queue.sendMessage(groupJid, text)) return true;
+
+        // No active orchestrator → spawn a fresh turn with the synthetic
+        // [DISPATCH_RESULT] prompt. This is what makes pipeline=true
+        // dispatches actually advance: subagent finishes, host wakes a
+        // fresh orchestrator turn, orchestrator decides the next stage
+        // (Cypher → Vector → Sentinel) or reports completion to the
+        // user, all without manual re-prompting.
+        const group = registeredGroups[groupJid];
+        if (!group) {
+          logger.warn(
+            { groupJid },
+            'pipeFollowUp: no registered group, dropping wake-up',
+          );
+          return false;
+        }
+        const channel = findChannel(channels, groupJid);
+        // Spawn the fresh turn in the background; await its result then
+        // forward any text the orchestrator emitted to the user's
+        // channel. Returns true immediately to the dispatch-runner — the
+        // wake-up is an asynchronous side-effect.
+        void runAgent(group, text, groupJid, [], async (result) => {
+          if (
+            result.status !== 'success' ||
+            !result.result ||
+            !channel
+          ) {
+            return;
+          }
+          const formatted = formatOutbound(
+            result.result,
+            channel.name as ChannelType,
+          );
+          if (formatted) {
+            try {
+              await channel.sendMessage(groupJid, formatted);
+            } catch (err) {
+              logger.error(
+                { groupJid, err },
+                'Failed to deliver pipeline wake-up result to channel',
+              );
+            }
+          }
+        }).catch((err) =>
+          logger.error(
+            { groupJid, err },
+            'Pipeline wake-up runAgent failed',
+          ),
+        );
+        logger.info(
+          { groupJid, group: group.name, textChars: text.length },
+          'Pipeline wake-up: spawning fresh orchestrator turn',
+        );
+        return true;
+      },
     },
   });
   startSessionCleanup();
