@@ -935,7 +935,16 @@ export async function runSubagentContainer(opts: {
   const groupDir = resolveGroupFolderPath(group.folder);
   fs.mkdirSync(groupDir, { recursive: true });
 
-  const mounts = buildVolumeMounts(group, false);
+  // Mount privileges: subagents inherit the PARENT group's main-ness for
+  // mount validation. A subagent dispatched from telegram_main needs the
+  // same writable additionalMounts (persist/repos for the clone-branch-
+  // push-PR workflow) as the orchestrator does — without this, validate-
+  // AdditionalMounts forces RO on non-main groups and the subagent can't
+  // clone anything (`fatal: could not create work tree dir 'aretmis':
+  // Read-only file system`, observed empirically). containerInput.isMain
+  // stays false separately, since that controls persona loading
+  // (subagents must load their subagent persona, not ARTEMIS.md).
+  const mounts = buildVolumeMounts(group, group.isMain === true);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `nanoclaw-${safeName}-sub-${subagentName}-${Date.now()}`;
   // Subagent inherits the parent group's OneCLI identity. OneCLI agent
