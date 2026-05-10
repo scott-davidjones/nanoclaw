@@ -464,20 +464,30 @@ const FORBIDDEN_ORCHESTRATOR_SDK_TOOLS = new Set([
   'PushNotification',
 ]);
 
-function createOrchestratorSdkToolGuardHook(isMain: boolean): HookCallback {
+function createOrchestratorSdkToolGuardHook(
+  isMain: boolean,
+  recordViolation: (tool: string) => void,
+): HookCallback {
   return async (input) => {
     if (!isMain) return {};
     const hook = input as PreToolUseHookInput;
     if (!FORBIDDEN_ORCHESTRATOR_SDK_TOOLS.has(hook.tool_name)) return {};
     log(
-      `PreToolUse DENY: orchestrator called SDK tool ${hook.tool_name} — not applicable to NanoClaw dispatches`,
+      `PreToolUse DENY: orchestrator called SDK tool ${hook.tool_name} — not applicable to NanoClaw dispatches; flagging for turn-termination`,
     );
+    // Soft-deny so the SDK call doesn't actually run. Record the violation
+    // so the main loop can throw on the next iteration and terminate the
+    // turn cleanly — without this, qwen3-coder-next interprets each deny
+    // as "this specific call failed, retry" and burns through to the
+    // LOOP_GUARD ceiling (observed 2026-05-10: 80 TaskOutput retries on
+    // the same dispatch_id before the loop guard tripped).
+    recordViolation(hook.tool_name);
     return {
       hookSpecificOutput: {
         hookEventName: 'PreToolUse' as const,
         permissionDecision: 'deny' as const,
         permissionDecisionReason:
-          `\`${hook.tool_name}\` is a Claude Agent SDK tool that does not apply to NanoClaw's dispatch model. NanoClaw subagents are dispatched via \`mcp__nanoclaw__dispatch_<agent>\`, which returns immediately with \`(id=...)\` and runs asynchronously. There is NO in-turn polling — the host wakes you with a \`[DISPATCH_RESULT] <agent> completed: <text>\` follow-up when the subagent exits. After calling a dispatch tool, your only options this turn are: (a) one brief \`mcp__nanoclaw__send_message\` acknowledgment, then (b) END the turn. Do not call SDK Task* / Team* / SendMessage / Monitor tools — they don't know about NanoClaw dispatches. If you want to send a message to the user, use \`mcp__nanoclaw__send_message\` (note the \`mcp__\` prefix).`,
+          `\`${hook.tool_name}\` is a Claude Agent SDK tool that does not apply to NanoClaw's dispatch model. NanoClaw subagents are dispatched via \`mcp__nanoclaw__dispatch_<agent>\`, which returns immediately with \`(id=...)\` and runs asynchronously. There is NO in-turn polling — the host wakes you with a \`[DISPATCH_RESULT] <agent> completed: <text>\` follow-up when the subagent exits. After calling a dispatch tool, your only options this turn are: (a) one brief \`mcp__nanoclaw__send_message\` acknowledgment, then (b) END the turn. Do not call SDK Task* / Team* / SendMessage / Monitor tools — they don't know about NanoClaw dispatches. If you want to send a message to the user, use \`mcp__nanoclaw__send_message\` (note the \`mcp__\` prefix). The host is terminating this turn now; the next turn will arrive automatically with the dispatched subagent's result.`,
       },
     };
   };
@@ -497,27 +507,38 @@ function createOrchestratorSdkToolGuardHook(isMain: boolean): HookCallback {
  *
  * This rail catches the latter — same-turn re-dispatch. The model gets
  * told its first dispatch already fired and to end the turn.
+ *
+ * Earlier versions of this hook took a `hasDispatchedThisTurn` callback
+ * that read the global `dispatchedThisTurn` flag. That flag is set by
+ * the assistant-message processing loop (line ~1582) BEFORE PreToolUse
+ * fires for the same tool_use, so the hook denied EVERY dispatch — not
+ * just the second one. Counting approvals inside the hook closure (per-
+ * turn scope, since the factory is invoked once per runQuery) is what
+ * actually distinguishes "first" from "subsequent."
  */
 function createOrchestratorDoubleDispatchGuardHook(
   isMain: boolean,
-  hasDispatchedThisTurn: () => boolean,
 ): HookCallback {
+  let approvedDispatches = 0;
   return async (input) => {
     if (!isMain) return {};
     const hook = input as PreToolUseHookInput;
     if (!hook.tool_name?.startsWith('mcp__nanoclaw__dispatch_')) return {};
-    if (!hasDispatchedThisTurn()) return {};
-    log(
-      `PreToolUse DENY: orchestrator second ${hook.tool_name} in same turn — must end turn after first dispatch`,
-    );
-    return {
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse' as const,
-        permissionDecision: 'deny' as const,
-        permissionDecisionReason:
-          'You already dispatched a subagent in this turn. NanoClaw expects exactly ONE dispatch per turn — the dispatch tool returned `(id=...)` immediately, and the host will wake you with a `[DISPATCH_RESULT]` follow-up when the subagent exits. Do NOT dispatch again in this turn (it would spawn a parallel subagent and race the first one for the same branch/PR). End the turn now: emit nothing further (or one brief `mcp__nanoclaw__send_message` acknowledgment if you haven\'t already sent one) and stop. The next turn will arrive automatically with the subagent\'s result.',
-      },
-    };
+    if (approvedDispatches >= 1) {
+      log(
+        `PreToolUse DENY: orchestrator second ${hook.tool_name} in same turn — must end turn after first dispatch`,
+      );
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse' as const,
+          permissionDecision: 'deny' as const,
+          permissionDecisionReason:
+            'You already dispatched a subagent in this turn. NanoClaw expects exactly ONE dispatch per turn — the dispatch tool returned `(id=...)` immediately, and the host will wake you with a `[DISPATCH_RESULT]` follow-up when the subagent exits. Do NOT dispatch again in this turn (it would spawn a parallel subagent and race the first one for the same branch/PR). End the turn now: emit nothing further (or one brief `mcp__nanoclaw__send_message` acknowledgment if you haven\'t already sent one) and stop. The next turn will arrive automatically with the subagent\'s result.',
+        },
+      };
+    }
+    approvedDispatches++;
+    return {};
   };
 }
 
@@ -1255,6 +1276,14 @@ async function runQuery(
   // never happens. Suppression at the source (writeOutput) is the
   // deterministic fix.
   let dispatchedThisTurn = false;
+  // SDK-tool guard escalation: the per-call deny rail (Phase 6) blocks the
+  // forbidden tool but qwen3-coder-next reads the deny as "this specific
+  // call failed, retry" and re-emits the same TaskOutput / TaskStop call
+  // until LOOP_GUARD trips at 80 tool uses. That wastes 70+ wasted SDK
+  // exchanges per stuck turn. Set this flag when the SDK-tool guard fires;
+  // the main agent-runner loop checks it after each tool_use batch and
+  // throws to terminate the turn cleanly with one explanatory error.
+  let sdkToolViolation: { tool: string; turn: number } | null = null;
   const isDispatchToolName = (name: string): boolean =>
     name === 'Task' ||
     name === 'mcp__nanoclaw__dispatch_cypher' ||
@@ -1506,11 +1535,15 @@ async function runQuery(
                 () => dispatchedThisTurn,
               ),
               createDispatchPipelineGuardHook(containerInput.isMain),
-              createOrchestratorSdkToolGuardHook(containerInput.isMain),
-              createOrchestratorDoubleDispatchGuardHook(
+              createOrchestratorSdkToolGuardHook(
                 containerInput.isMain,
-                () => dispatchedThisTurn,
+                (tool) => {
+                  if (!sdkToolViolation) {
+                    sdkToolViolation = { tool, turn: toolUseCount };
+                  }
+                },
               ),
+              createOrchestratorDoubleDispatchGuardHook(containerInput.isMain),
             ],
           },
         ],
@@ -1582,6 +1615,33 @@ async function runQuery(
         if (isDispatchToolName(call.name)) {
           dispatchedThisTurn = true;
         }
+      }
+      // SDK-tool violation escalation: terminate the turn immediately on the
+      // first denied SDK Task*/Team*/SendMessage/Monitor/Cron* call rather
+      // than letting the model retry until LOOP_GUARD trips at 80 calls.
+      // The guard hook has already returned `permissionDecision: deny`, so
+      // the harmful call didn't run; throwing here ends the turn before the
+      // model can re-emit the same call from the same prior. The thrown
+      // error reaches the host's runAgent caller as `status: 'error'`,
+      // which surfaces a one-line failure message to the user via the
+      // emptyResponse handler.
+      // Snapshot via local ref so TS can narrow inside the if-block without
+      // confusion from the closure-mutated outer variable. The explicit cast
+      // is required because `sdkToolViolation` is mutated only via an async
+      // hook callback — TS's flow analysis can't see the assignment and
+      // narrows the value here to its `null` initializer otherwise.
+      const violation = sdkToolViolation as
+        | { tool: string; turn: number }
+        | null;
+      if (violation) {
+        log(
+          `SDK-TOOL VIOLATION: orchestrator called ${violation.tool} — terminating turn (deny was returned but qwen3 historically retries the same call until LOOP_GUARD).`,
+        );
+        stream.end();
+        ipcPolling = false;
+        throw new Error(
+          `Agent called forbidden SDK tool ${violation.tool} after dispatching. NanoClaw dispatch is asynchronous — there's no in-turn polling. The dispatched subagent will run independently; the host will wake you with [DISPATCH_RESULT] when it exits. Retry your turn with mcp__nanoclaw__send_message for any acknowledgment, then end.`,
+        );
       }
       if (toolUseCount >= maxToolUses) {
         log(

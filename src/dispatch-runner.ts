@@ -337,6 +337,37 @@ export async function processDispatchIpc(
     durationMs: Date.now() - startTime,
   };
 
+  // Semantic-failure detection: subagents whose container exits cleanly
+  // but whose final message reports test failures, review blockers, or
+  // classification failures should route to Triage (per the canonical
+  // failure-routing role in brain/standards/agents/triage.md). Convention:
+  // subagents prefix their final message with `[FAILED]` (case-insensitive,
+  // optional leading whitespace) to signal semantic failure. We translate
+  // the prefix into status:'error' here so the existing pipeline-summary
+  // and forwarding paths emit the FAILED wake-up — Phase 5's Stop hook
+  // already routes any FAILED to dispatch_triage.
+  //
+  // Documented in tester.md / reviewer.md / ui-tester.md. Without the
+  // prefix the host assumes the subagent passed and the chain progresses
+  // forward (cypher → vector → sentinel) per Phase 5's static map.
+  if (
+    result.status === 'success' &&
+    typeof result.result === 'string' &&
+    /^\s*\[FAILED\]/i.test(result.result)
+  ) {
+    logger.info(
+      {
+        dispatch_id: task.dispatch_id,
+        agent: task.agent,
+        textPreview: result.result.slice(0, 200),
+      },
+      'Subagent signalled semantic failure via [FAILED] prefix — routing to Triage',
+    );
+    result.error = result.result;
+    result.result = null;
+    result.status = 'error';
+  }
+
   // pipeline=false fire-and-forget: forward the subagent's final result
   // to the user as a message tagged with the agent name. Without this,
   // qwen3-coder-class subagents that emit their reply via the SDK result
