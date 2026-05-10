@@ -651,12 +651,20 @@ function createPreCompactHook(assistantName?: string): HookCallback {
  * answered directly by the orchestrator. Anchored on common verbs/phrasings
  * Scott actually uses; expand as we observe more failure modes.
  */
+// Noun set for "engineering artifact" — what gets created or modified.
+// Used by both the create-shaped and modify-shaped patterns below.
+// `[\w-]+` allows hyphens (home-assistant, json-schema, etc.).
+const DEV_NOUN = '(?:script|tool|plugin|module|feature|skill|command|hook|validator|reader|parser|extractor|integration|app|persona|config|setup|workflow|flow|pipeline|routine|behavior|behaviour)';
+// 1–5 words between an article and the noun (e.g. "the home assistant app",
+// "a json schema validator skill", "the home-assistant integration").
+const DEV_DESCRIPTOR = '(?:[\\w-]+\\s+){0,5}';
+
 const DEV_REQUEST_PATTERNS: RegExp[] = [
   /\bcreate\s+(?:me\s+)?(?:a|an|the)?\s*\w*\s*skill\b/i,
   /\badd\s+(?:the\s+|an?\s+)?ability\s+to\b/i,
-  /\badd\s+(?:me\s+)?(?:a|an|the)\s+\w*\s*(?:script|tool|plugin|module|feature|skill|command|hook|validator|reader|parser|extractor|integration)\b/i,
+  new RegExp(`\\badd\\s+(?:me\\s+)?(?:a|an|the)\\s+${DEV_DESCRIPTOR}${DEV_NOUN}\\b`, 'i'),
   /\bbuild\s+(?:me\s+)?(?:a|an|the)\b/i,
-  /\bmake\s+(?:me\s+)?(?:a|an|the)\s+(?:script|tool|plugin|module|feature|skill|command|hook)\b/i,
+  new RegExp(`\\bmake\\s+(?:me\\s+)?(?:a|an|the)\\s+${DEV_DESCRIPTOR}${DEV_NOUN}\\b`, 'i'),
   /\bimplement\s+\w/i,
   /\bfix\s+(?:the\s+)?(?:bug|issue|broken)\b/i,
   /\brefactor\b/i,
@@ -666,6 +674,19 @@ const DEV_REQUEST_PATTERNS: RegExp[] = [
   /\bworks?\s+but\s+I\s+want\b/i,
   /\b(?:write|develop|code)\s+(?:me\s+)?(?:a|an|the)\b/i,
   /\bopen\s+a\s+pr\b/i,
+  // Modify-existing verbs — "update the X skill", "change the home assistant
+  // app", "tweak the home-assistant integration", "extend the dispatch flow".
+  // Added 2026-05-10 after the home-assistant miss: "Can you update the home
+  // assistant app so that when I say goodnight..." slid past the verb set.
+  new RegExp(
+    `\\b(?:update|change|modify|tweak|extend|tighten|adjust|edit)\\s+(?:the\\s+|my\\s+|our\\s+)?${DEV_DESCRIPTOR}${DEV_NOUN}\\b`,
+    'i',
+  ),
+  // "update X so that when ...", "change Y to ..." — modify intent without
+  // the explicit noun token (the descriptor itself names the artifact).
+  /\b(?:update|change|modify|tweak|extend|tighten|adjust|edit)\s+(?:[\w-]+\s+){1,5}(?:so|to)\s+(?:that\s+)?(?:when|it|i|we|the|a|an)\b/i,
+  /\bwire\s+(?:up\s+)?(?:[\w-]+\s+){1,5}(?:to|so|into)\b/i,
+  /\bmake\s+(?:it|this|that)\s+(?:so|work|do|run|trigger|behave)\b/i,
 ];
 
 function isDevRequest(text: string): boolean {
