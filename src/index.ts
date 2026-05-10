@@ -972,11 +972,7 @@ async function main(): Promise<void> {
         // channel. Returns true immediately to the dispatch-runner — the
         // wake-up is an asynchronous side-effect.
         void runAgent(group, text, groupJid, [], async (result) => {
-          if (
-            result.status !== 'success' ||
-            !result.result ||
-            !channel
-          ) {
+          if (result.status !== 'success' || !result.result || !channel) {
             return;
           }
           const formatted = formatOutbound(
@@ -994,10 +990,7 @@ async function main(): Promise<void> {
             }
           }
         }).catch((err) =>
-          logger.error(
-            { groupJid, err },
-            'Pipeline wake-up runAgent failed',
-          ),
+          logger.error({ groupJid, err }, 'Pipeline wake-up runAgent failed'),
         );
         logger.info(
           { groupJid, group: group.name, textChars: text.length },
