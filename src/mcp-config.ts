@@ -84,12 +84,28 @@ function buildSearchOrder(opts: {
 
   // Layer 1: user
   const userBase = path.join(homeDir, '.config', 'nanoclaw');
-  entries.push({ origin: 'user-file', kind: 'file', path: path.join(userBase, 'mcp.json') });
-  entries.push({ origin: 'user-dir', kind: 'dir', path: path.join(userBase, 'mcp.d') });
+  entries.push({
+    origin: 'user-file',
+    kind: 'file',
+    path: path.join(userBase, 'mcp.json'),
+  });
+  entries.push({
+    origin: 'user-dir',
+    kind: 'dir',
+    path: path.join(userBase, 'mcp.d'),
+  });
 
   // Layer 2: repo (cwd)
-  entries.push({ origin: 'repo-file', kind: 'file', path: path.join(cwd, '.mcp.json') });
-  entries.push({ origin: 'repo-dir', kind: 'dir', path: path.join(cwd, '.mcp.d') });
+  entries.push({
+    origin: 'repo-file',
+    kind: 'file',
+    path: path.join(cwd, '.mcp.json'),
+  });
+  entries.push({
+    origin: 'repo-dir',
+    kind: 'dir',
+    path: path.join(cwd, '.mcp.d'),
+  });
 
   // Layer 3: env-extra
   if (envPath && envPath.trim()) {
@@ -126,7 +142,9 @@ function readMcpFile(
     // ENOENT is expected (optional files). Other errors get logged.
     const code = (err as NodeJS.ErrnoException)?.code;
     if (code !== 'ENOENT') {
-      log?.(`mcp-config: failed to read ${filePath}: ${(err as Error).message}`);
+      log?.(
+        `mcp-config: failed to read ${filePath}: ${(err as Error).message}`,
+      );
     }
     return {};
   }
@@ -187,7 +205,8 @@ function readMcpDir(
     .filter((name) => name.toLowerCase().endsWith('.json'))
     .sort();
 
-  const out: Array<{ file: string; servers: Record<string, McpServerConfig> }> = [];
+  const out: Array<{ file: string; servers: Record<string, McpServerConfig> }> =
+    [];
   for (const name of jsonFiles) {
     const filePath = path.join(dirPath, name);
     // Skip directories that happen to end in .json — symlinks to files are OK.

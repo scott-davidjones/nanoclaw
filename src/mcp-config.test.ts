@@ -164,7 +164,9 @@ describe('loadMcpServers', () => {
       type: 'http',
       url: 'survived',
     });
-    expect(logs.some((l) => l.includes('invalid JSON') && l.includes('broken.json'))).toBe(true);
+    expect(
+      logs.some((l) => l.includes('invalid JSON') && l.includes('broken.json')),
+    ).toBe(true);
   });
 
   it('files missing the mcpServers key contribute nothing', () => {
