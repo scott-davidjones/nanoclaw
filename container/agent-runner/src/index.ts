@@ -50,6 +50,13 @@ interface ContainerInput {
   assistantName?: string;
   script?: string;
   imageAttachments?: Array<{ relativePath: string; mediaType: string }>;
+  /**
+   * Extra MCP servers resolved by the host from the layered mcp.json + mcp.d/
+   * search order (see src/mcp-config.ts on the host). Merged on top of the
+   * built-in defaults below; the runtime-bound `nanoclaw` stdio server is
+   * stamped last and is never overrideable.
+   */
+  extraMcpServers?: Record<string, unknown>;
 }
 
 interface EmptyResponseInfo {
@@ -1455,16 +1462,15 @@ async function runQuery(
       permissionMode: 'bypassPermissions',
       allowDangerouslySkipPermissions: true,
       settingSources: ['project', 'user'],
+      // Server merge order:
+      //   1. Built-in defaults — env-conditional `memory` + static `qmd`.
+      //      Kept here for back-compat; can be overridden via mcp.d/ files.
+      //   2. Host-provided `extraMcpServers` from src/mcp-config.ts (user-
+      //      level + repo-level + NANOCLAW_MCP_CONFIG_PATH).
+      //   3. Runtime-bound `nanoclaw` stdio — always last, never overrideable
+      //      because its env vars are bound to this container's chatJid /
+      //      groupFolder / isMain at spawn time.
       mcpServers: {
-        nanoclaw: {
-          command: 'node',
-          args: [mcpServerPath],
-          env: {
-            NANOCLAW_CHAT_JID: containerInput.chatJid,
-            NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
-            NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
-          },
-        },
         ...(process.env.MCP_MEMORY_URL ? {
           memory: {
             type: 'http' as const,
@@ -1474,6 +1480,16 @@ async function runQuery(
         qmd: {
           type: 'http',
           url: 'http://host.docker.internal:8182/mcp',
+        },
+        ...(containerInput.extraMcpServers as Record<string, never> | undefined),
+        nanoclaw: {
+          command: 'node',
+          args: [mcpServerPath],
+          env: {
+            NANOCLAW_CHAT_JID: containerInput.chatJid,
+            NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
+            NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
+          },
         },
       },
       hooks: {

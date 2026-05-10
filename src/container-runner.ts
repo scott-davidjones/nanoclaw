@@ -36,6 +36,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { OneCLI } from '@onecli-sh/sdk';
+import { loadMcpServers } from './mcp-config.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -55,6 +56,15 @@ export interface ContainerInput {
   assistantName?: string;
   script?: string;
   imageAttachments?: Array<{ relativePath: string; mediaType: string }>;
+  /**
+   * Additional MCP servers, resolved on the host from the layered
+   * mcp.json + mcp.d/ search order (see src/mcp-config.ts). The
+   * agent-runner merges these on top of its built-in `qmd`, optional
+   * env-driven `memory`, and the always-present runtime-bound `nanoclaw`
+   * stdio server. Keys here may override the built-in defaults but never
+   * override `nanoclaw` (which is stamped last inside the container).
+   */
+  extraMcpServers?: Record<string, unknown>;
 }
 
 export interface EmptyResponseInfo {
@@ -540,6 +550,27 @@ export async function runContainerAgent(
   const logsDir = path.join(groupDir, 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
 
+  // Resolve user/repo/env-layered MCP server config and stamp onto the input.
+  // Done at spawn time so changes to mcp.d/ files take effect on the next
+  // container without requiring a service restart. The agent-runner inside
+  // the container merges these on top of its built-in defaults.
+  if (!input.extraMcpServers) {
+    const mcp = loadMcpServers({
+      cwd: process.cwd(),
+      log: (msg) => logger.debug({ source: 'mcp-config' }, msg),
+    });
+    if (Object.keys(mcp.servers).length > 0) {
+      input = { ...input, extraMcpServers: mcp.servers };
+      logger.info(
+        {
+          servers: Object.keys(mcp.servers),
+          sources: mcp.sources.map((s) => `${s.name}@${s.origin}`),
+        },
+        'Loaded extra MCP servers from layered config',
+      );
+    }
+  }
+
   return new Promise((resolve) => {
     const container = spawn(CONTAINER_RUNTIME_BIN, containerArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -982,12 +1013,24 @@ export async function runSubagentContainer(opts: {
     'Spawning subagent container',
   );
 
+  // Same layered MCP config as the main agent — subagents (Cypher / Vector /
+  // Prism / Sentinel / Triage) inherit the parent's mcp.d/ since they run
+  // with the same group context.
+  const subagentMcp = loadMcpServers({
+    cwd: process.cwd(),
+    log: (msg) => logger.debug({ source: 'mcp-config' }, msg),
+  });
+  const extraMcpServers =
+    Object.keys(subagentMcp.servers).length > 0
+      ? subagentMcp.servers
+      : undefined;
   const input: ContainerInput = {
     prompt,
     groupFolder: group.folder,
     chatJid,
     isMain: false,
     assistantName: subagentName,
+    extraMcpServers,
   };
 
   const startTime = Date.now();
