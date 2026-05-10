@@ -1447,11 +1447,6 @@ async function runQuery(
         'Grep',
         'WebFetch',
         'Task',
-        'TaskOutput',
-        'TaskStop',
-        'TeamCreate',
-        'TeamDelete',
-        'SendMessage',
         'TodoWrite',
         'ToolSearch',
         'Skill',
@@ -1465,8 +1460,24 @@ async function runQuery(
       // explicit deny they show up in the system prompt and the model can
       // pick them — see the Gemma/CronCreate incident where TPP's
       // schedule_task was substituted with the in-session-only CronCreate
-      // and the follow-up check silently never fired.
+      // and the follow-up check silently never fired, and the 2026-05-10
+      // TaskOutput-loop where the orchestrator polled `TaskOutput` 80
+      // times in a row trying to wait on a NanoClaw dispatch (PreToolUse
+      // hooks don't fire for SDK-internal tools, only `disallowedTools`
+      // actually hides them from the model).
       //
+      // Task* (except `Task` itself): SDK's session-scoped task tracker
+      //   for the native Task dispatch. NanoClaw uses
+      //   mcp__nanoclaw__dispatch_* with async wake-ups instead — there
+      //   is no in-turn polling.
+      // SendMessage: SDK's teammate-messaging tool for in-session agent
+      //   teams. NanoClaw subagents use mcp__nanoclaw__send_message
+      //   (note the mcp__ prefix); the bare SendMessage routes through
+      //   a teammate channel that doesn't exist here.
+      // Team*: SDK's agent-team abstraction. NanoClaw composes via
+      //   dispatch + persona-load instead.
+      // Monitor: SDK background-watcher tool — meaningless in a one-
+      //   shot container that exits per turn.
       // Cron*: SDK's session-scoped scheduler. Doesn't survive container
       //   exit and isn't backed by NanoClaw's task scheduler. Use
       //   mcp__nanoclaw__schedule_task instead.
@@ -1479,13 +1490,36 @@ async function runQuery(
       //   Unreachable from this environment.
       // EnterPlanMode / ExitPlanMode kept allowed — legitimate
       //   orchestration capability.
+      // PushNotification: in-session UX feature, irrelevant for the
+      //   server-side container model.
       disallowedTools: [
+        // SDK Task tracker — see the 2026-05-10 TaskOutput-loop
+        'TaskOutput',
+        'TaskStop',
+        'TaskGet',
+        'TaskList',
+        'TaskCreate',
+        'TaskUpdate',
+        // SDK teammate messaging
+        'SendMessage',
+        // SDK agent-team abstraction
+        'TeamCreate',
+        'TeamSpawn',
+        'TeamGet',
+        'TeamList',
+        'TeamUpdate',
+        'TeamDelete',
+        // SDK background-watcher
+        'Monitor',
+        // SDK session-scoped scheduler
         'CronCreate',
         'CronList',
         'CronDelete',
+        // Other unreachable / inappropriate SDK power tools
         'EnterWorktree',
         'ExitWorktree',
         'RemoteTrigger',
+        'PushNotification',
       ],
       env: sdkEnv,
       permissionMode: 'bypassPermissions',
